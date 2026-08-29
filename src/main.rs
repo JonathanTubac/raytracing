@@ -1,30 +1,21 @@
 mod framebuffer;
-mod object;
-mod vec3;
+mod ray_intersect;
 
-use framebuffer::{Color, Framebuffer};
-use object::{Object, Sphere};
-use vec3::{normalize, Vec3};
+use framebuffer::Framebuffer;
+use nalgebra_glm::{normalize, Vec3};
+use ray_intersect::{RayIntersect, Sphere};
 
-const BACKGROUND_COLOR: Color = Color { r: 20, g: 20, b: 30 };
-
-fn cast_ray(origin: &Vec3, direction: &Vec3, objects: &[Box<dyn Object>]) -> Color {
-    let mut closest_distance = f32::INFINITY;
-    let mut pixel_color = BACKGROUND_COLOR;
-
+pub fn cast_ray(ray_origin: &Vec3, ray_direction: &Vec3, objects: &[Sphere]) -> u32 {
     for object in objects {
-        if let Some(intersect) = object.intersect(origin, direction) {
-            if intersect.distance < closest_distance {
-                closest_distance = intersect.distance;
-                pixel_color = object.color();
-            }
+        if object.ray_intersect(ray_origin, ray_direction) {
+            return 0xFFFFFF;
         }
     }
 
-    pixel_color
+    0x000000
 }
 
-pub fn render(framebuffer: &mut Framebuffer, objects: &[Box<dyn Object>]) {
+pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
@@ -53,23 +44,10 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Box<dyn Object>]) {
 fn main() {
     let mut framebuffer = Framebuffer::new(800, 600);
 
-    let objects: Vec<Box<dyn Object>> = vec![
-        Box::new(Sphere {
-            center: Vec3::new(0.0, 0.0, -5.0),
-            radius: 1.0,
-            color: Color::new(200, 60, 60),
-        }),
-        Box::new(Sphere {
-            center: Vec3::new(-2.0, 0.5, -6.0),
-            radius: 1.3,
-            color: Color::new(60, 120, 200),
-        }),
-        Box::new(Sphere {
-            center: Vec3::new(1.5, -0.5, -4.0),
-            radius: 0.6,
-            color: Color::new(80, 200, 100),
-        }),
-    ];
+    let objects = vec![Sphere {
+        center: Vec3::new(0.0, 0.0, -5.0),
+        radius: 1.0,
+    }];
 
     render(&mut framebuffer, &objects);
 

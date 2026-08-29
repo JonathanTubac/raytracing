@@ -1,21 +1,8 @@
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl Color {
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        Color { r, g, b }
-    }
-}
-
 pub struct Framebuffer {
     pub width: usize,
     pub height: usize,
-    buffer: Vec<Color>,
-    current_color: Color,
+    buffer: Vec<u32>,
+    current_color: u32,
 }
 
 impl Framebuffer {
@@ -23,12 +10,12 @@ impl Framebuffer {
         Framebuffer {
             width,
             height,
-            buffer: vec![Color::new(0, 0, 0); width * height],
-            current_color: Color::new(255, 255, 255),
+            buffer: vec![0x000000; width * height],
+            current_color: 0xFFFFFF,
         }
     }
 
-    pub fn set_current_color(&mut self, color: Color) {
+    pub fn set_current_color(&mut self, color: u32) {
         self.current_color = color;
     }
 
@@ -42,8 +29,11 @@ impl Framebuffer {
         let mut img = image::RgbImage::new(self.width as u32, self.height as u32);
         for y in 0..self.height {
             for x in 0..self.width {
-                let c = self.buffer[y * self.width + x];
-                img.put_pixel(x as u32, y as u32, image::Rgb([c.r, c.g, c.b]));
+                let color = self.buffer[y * self.width + x];
+                let r = ((color >> 16) & 0xFF) as u8;
+                let g = ((color >> 8) & 0xFF) as u8;
+                let b = (color & 0xFF) as u8;
+                img.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
             }
         }
         img.save(path)
