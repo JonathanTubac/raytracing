@@ -38,4 +38,8 @@ impl Framebuffer {
         }
         img.save(path)
     }
+
+    pub fn buffer(&self) -> &[u32] {
+        &self.buffer
+    }
 }

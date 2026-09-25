@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 image = "0.25"
 nalgebra-glm = "0.19"
+minifb = "0.28"

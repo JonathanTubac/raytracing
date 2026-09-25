@@ -2,8 +2,9 @@ mod framebuffer;
 mod ray_intersect;
 
 use framebuffer::Framebuffer;
-use nalgebra_glm::{normalize, Vec3};
+use nalgebra_glm::{Vec3, normalize};
 use ray_intersect::{RayIntersect, Sphere};
+use minifb::{Key, Window, WindowOptions};
 
 pub fn cast_ray(ray_origin: &Vec3, ray_direction: &Vec3, objects: &[Sphere]) -> u32 {
     for object in objects {
@@ -44,19 +45,25 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
 fn main() {
     let mut framebuffer = Framebuffer::new(800, 600);
 
-    let objects = vec![Sphere {
-        center: Vec3::new(0.0, 0.0, -5.0),
-        radius: 1.0,
-    }];
+    let objects = vec![
+        Sphere {center: Vec3::new(0.0, 0.0, -5.0), radius: 1.0,},
+
+        
+    ];
 
     render(&mut framebuffer, &objects);
 
-    framebuffer
-        .save_to_file("output.png")
-        .expect("no se pudo guardar la imagen");
+    let mut window = Window::new(
+        "Raytracer",
+        framebuffer.width,
+        framebuffer.height,
+        WindowOptions::default(),
+    )
+    .expect("Error al crear la ventana");
 
-    println!(
-        "Listo: output.png generado ({}x{})",
-        framebuffer.width, framebuffer.height
-    );
+    window.set_target_fps(60);
+
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        window.update_with_buffer(framebuffer.buffer(), framebuffer.width, framebuffer.height).expect("Error al crear la ventana");
+    }
 }
