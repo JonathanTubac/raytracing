@@ -1,6 +1,8 @@
 use nalgebra_glm::Vec3;
 
+use crate::camera::Camera;
 use crate::color::Color;
+use crate::light::Light;
 use crate::ray_intersect::Material;
 use crate::sphere::Sphere;
 
@@ -9,7 +11,7 @@ const VERDE: Material = Material { diffuse: Color::new(60, 170, 80) };
 const AZUL: Material = Material { diffuse: Color::new(50, 90, 200) };
 const AMARILLO: Material = Material { diffuse: Color::new(230, 200, 60) };
 
-/// La camara esta en el origen mirando hacia -Z, asi que las esferas van con z negativo.
+/// Las esferas estan frente a la camara inicial, que mira hacia -Z, por eso tienen z negativo.
 pub fn esferas() -> Vec<Sphere> {
     vec![
         Sphere {
@@ -34,4 +36,14 @@ pub fn esferas() -> Vec<Sphere> {
             material: AMARILLO,
         },
     ]
+}
+
+/// La camara orbita alrededor del centro de las esferas. Empieza en el origen mirando hacia -Z.
+pub fn camara() -> Camera {
+    Camera::new(Vec3::new(0.0, 0.0, -5.0), 5.0)
+}
+
+/// Luz arriba a la izquierda y un poco al frente de las esferas
+pub fn luz() -> Light {
+    Light::new(Vec3::new(-5.0, 6.0, 2.0), 1.0)
 }
