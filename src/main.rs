@@ -1,9 +1,11 @@
 mod framebuffer;
 mod ray_intersect;
+mod sphere;
 
 use framebuffer::Framebuffer;
 use nalgebra_glm::{Vec3, normalize};
-use ray_intersect::{RayIntersect, Sphere};
+use ray_intersect::RayIntersect;
+use sphere::Sphere;
 use minifb::{Key, Window, WindowOptions};
 
 // Colores del gopher (tomados de la imagen de referencia)
