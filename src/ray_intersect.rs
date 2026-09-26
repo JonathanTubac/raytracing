@@ -1,16 +1,18 @@
 use nalgebra_glm::{dot, Vec3};
 
 pub trait RayIntersect {
-    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> bool;
+    // Returns the distance along the ray to the closest hit, or None if the ray misses
+    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Option<f32>;
 }
 
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
+    pub color: u32,
 }
 
 impl RayIntersect for Sphere {
-    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> bool {
+    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Option<f32> {
         // Vector from the ray origin to the center of the sphere
         let oc = ray_origin - self.center;
 
@@ -38,6 +40,22 @@ impl RayIntersect for Sphere {
         let discriminant = b * b - 4.0 * a * c;
 
         // The ray intersects the sphere if the discriminant is greater than zero
-        discriminant > 0.0
+        if discriminant <= 0.0 {
+            return None;
+        }
+
+        // The two solutions are the distances to the near and far points of the sphere.
+        // We keep the nearest one that is in front of the ray origin.
+        let sqrt_d = discriminant.sqrt();
+        let t_near = (-b - sqrt_d) / (2.0 * a);
+        let t_far = (-b + sqrt_d) / (2.0 * a);
+
+        if t_near > 0.0 {
+            Some(t_near)
+        } else if t_far > 0.0 {
+            Some(t_far)
+        } else {
+            None
+        }
     }
 }
