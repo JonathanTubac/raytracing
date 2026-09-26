@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use nalgebra_glm::{dot, normalize, Vec3};
 
 use crate::ray_intersect::{Intersect, Material, RayIntersect};
@@ -59,6 +61,53 @@ impl RayIntersect for Sphere {
         let point = ray_origin + ray_direction * distance;
         let normal = normalize(&(point - self.center));
 
-        Intersect::new(point, normal, distance, self.material)
+        // Coordenadas de textura: u es el angulo alrededor del eje vertical y v va de polo a polo
+        let u = 0.5 + normal.z.atan2(normal.x) / (2.0 * PI);
+        let v = 0.5 - normal.y.clamp(-1.0, 1.0).asin() / PI;
+
+        Intersect::new(point, normal, distance, self.material, u, v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::Color;
+    use crate::texture::Texture;
+
+    fn esfera() -> Sphere {
+        Sphere {
+            center: Vec3::new(0.0, 0.0, -5.0),
+            radius: 1.0,
+            material: Material::new(Texture::Solid(Color::new(1, 2, 3))),
+        }
+    }
+
+    #[test]
+    fn el_impacto_de_frente_da_distancia_punto_normal_y_uv() {
+        let hit = esfera().ray_intersect(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0));
+
+        assert!(hit.is_intersecting);
+        assert!((hit.distance - 4.0).abs() < 1e-5);
+        assert!((hit.point - Vec3::new(0.0, 0.0, -4.0)).norm() < 1e-5);
+        assert!((hit.normal - Vec3::new(0.0, 0.0, 1.0)).norm() < 1e-5);
+        // De frente cae en el "ecuador" (v = 0.5), a un cuarto de vuelta (u = 0.75)
+        assert!((hit.u - 0.75).abs() < 1e-5);
+        assert!((hit.v - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn un_rayo_que_falla_devuelve_un_intersect_vacio() {
+        let hit = esfera().ray_intersect(&Vec3::zeros(), &Vec3::new(0.0, 1.0, 0.0));
+        assert!(!hit.is_intersecting);
+    }
+
+    #[test]
+    fn los_polos_tienen_v_0_arriba_y_1_abajo() {
+        let arriba = esfera().ray_intersect(&Vec3::new(0.0, 5.0, -5.0), &Vec3::new(0.0, -1.0, 0.0));
+        let abajo = esfera().ray_intersect(&Vec3::new(0.0, -5.0, -5.0), &Vec3::new(0.0, 1.0, 0.0));
+
+        assert!(arriba.v.abs() < 1e-5);
+        assert!((abajo.v - 1.0).abs() < 1e-5);
     }
 }

@@ -7,6 +7,7 @@ edition = "2024"
 image = "0.25"
 nalgebra-glm = "0.19"
 minifb = "0.28"
+rayon = "1.12.0"
 
 # Sin esto, `cargo run` (modo debug) renderiza sin optimizar y la ventana va muy lenta
 [profile.dev]

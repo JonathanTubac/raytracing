@@ -7,6 +7,7 @@ mod ray_intersect;
 mod render;
 mod scene;
 mod sphere;
+mod texture;
 
 use controls::Controls;
 use framebuffer::Framebuffer;
