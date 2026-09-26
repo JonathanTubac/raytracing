@@ -1,13 +1,15 @@
 use nalgebra_glm::Vec3;
 
+use crate::color::Color;
+use crate::ray_intersect::Material;
 use crate::render::FOCAL;
 use crate::sphere::Sphere;
 
 // Colores del gopher (tomados de la imagen de referencia)
-const AZUL: u32 = 0x74CEDD;
-const PIEL: u32 = 0xF7D3A2;
-const NEGRO: u32 = 0x050708;
-const BLANCO: u32 = 0xFFFFFF;
+const AZUL: Material = Material { diffuse: Color::new(0x74, 0xCE, 0xDD) };
+const PIEL: Material = Material { diffuse: Color::new(0xF7, 0xD3, 0xA2) };
+const NEGRO: Material = Material { diffuse: Color::new(0x05, 0x07, 0x08) };
+const BLANCO: Material = Material { diffuse: Color::new(0xFF, 0xFF, 0xFF) };
 
 // La referencia es de 600x600 pixeles y la escena se renderiza a ese mismo tamano
 pub const IMG: f32 = 600.0;
@@ -15,7 +17,7 @@ pub const IMG: f32 = 600.0;
 /// Crea una esfera que, vista desde la camara, aparece centrada en el pixel (px, py)
 /// de la imagen de referencia con un radio de `r` pixeles. `depth` es que tan lejos
 /// esta de la camara: las esferas con menor `depth` tapan a las de mayor `depth`.
-fn esfera(px: f32, py: f32, r: f32, depth: f32, color: u32) -> Sphere {
+fn esfera(px: f32, py: f32, r: f32, depth: f32, material: Material) -> Sphere {
     let screen_x = 2.0 * px / IMG - 1.0;
     let screen_y = 1.0 - 2.0 * py / IMG;
     let center = Vec3::new(screen_x * depth, screen_y * depth, -FOCAL * depth);
@@ -28,7 +30,7 @@ fn esfera(px: f32, py: f32, r: f32, depth: f32, color: u32) -> Sphere {
     Sphere {
         center,
         radius,
-        color,
+        material,
     }
 }
 

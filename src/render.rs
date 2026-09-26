@@ -1,34 +1,31 @@
 use nalgebra_glm::{Vec3, normalize};
 
+use crate::color::Color;
 use crate::framebuffer::Framebuffer;
 use crate::ray_intersect::RayIntersect;
 use crate::sphere::Sphere;
 
 // Color de los pixeles donde el rayo no golpea ninguna esfera
-const FONDO: u32 = 0xFFFFFF;
+const FONDO: Color = Color::new(255, 255, 255);
 
 // Distancia de la camara al plano de imagen. Un valor alto = FOV angosto, asi las esferas
 // grandes que estan lejos del centro casi no se deforman.
 pub const FOCAL: f32 = 6.0;
 
-pub fn cast_ray(ray_origin: &Vec3, ray_direction: &Vec3, objects: &[Sphere]) -> u32 {
-    // Nos quedamos con la esfera mas cercana a la camara que golpee el rayo
+pub fn cast_ray(ray_origin: &Vec3, ray_direction: &Vec3, objects: &[Sphere]) -> Color {
+    // Nos quedamos con el impacto mas cercano a la camara
     let mut closest = f32::INFINITY;
-    let mut hit: Option<&Sphere> = None;
+    let mut color = FONDO;
 
     for object in objects {
-        if let Some(t) = object.ray_intersect(ray_origin, ray_direction) {
-            if t < closest {
-                closest = t;
-                hit = Some(object);
-            }
+        let intersect = object.ray_intersect(ray_origin, ray_direction);
+        if intersect.is_intersecting && intersect.distance < closest {
+            closest = intersect.distance;
+            color = intersect.material.diffuse;
         }
     }
 
-    match hit {
-        Some(sphere) => sphere.color,
-        None => FONDO,
-    }
+    color
 }
 
 pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
@@ -51,7 +48,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
             // Se lanza el rayo y se obtiene el color
             let pixel_color = cast_ray(&Vec3::new(0.0, 0.0, 0.0), &ray_direction, objects);
 
-            framebuffer.set_current_color(pixel_color);
+            framebuffer.set_current_color(pixel_color.to_hex());
             framebuffer.point(x, y);
         }
     }

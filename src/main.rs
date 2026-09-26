@@ -1,3 +1,4 @@
+mod color;
 mod framebuffer;
 mod ray_intersect;
 mod render;

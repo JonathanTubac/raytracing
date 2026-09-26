@@ -1,15 +1,15 @@
-use nalgebra_glm::{dot, Vec3};
+use nalgebra_glm::{dot, normalize, Vec3};
 
-use crate::ray_intersect::RayIntersect;
+use crate::ray_intersect::{Intersect, Material, RayIntersect};
 
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f32,
-    pub color: u32,
+    pub material: Material,
 }
 
 impl RayIntersect for Sphere {
-    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Option<f32> {
+    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect {
         // Vector from the ray origin to the center of the sphere
         let oc = ray_origin - self.center;
 
@@ -38,7 +38,7 @@ impl RayIntersect for Sphere {
 
         // The ray intersects the sphere if the discriminant is greater than zero
         if discriminant <= 0.0 {
-            return None;
+            return Intersect::empty();
         }
 
         // The two solutions are the distances to the near and far points of the sphere.
@@ -47,12 +47,18 @@ impl RayIntersect for Sphere {
         let t_near = (-b - sqrt_d) / (2.0 * a);
         let t_far = (-b + sqrt_d) / (2.0 * a);
 
-        if t_near > 0.0 {
-            Some(t_near)
+        let distance = if t_near > 0.0 {
+            t_near
         } else if t_far > 0.0 {
-            Some(t_far)
+            t_far
         } else {
-            None
-        }
+            return Intersect::empty();
+        };
+
+        // Point where the ray hits the sphere and the surface normal at that point
+        let point = ray_origin + ray_direction * distance;
+        let normal = normalize(&(point - self.center));
+
+        Intersect::new(point, normal, distance, self.material)
     }
 }
