@@ -6,11 +6,7 @@ use crate::ray_intersect::RayIntersect;
 use crate::sphere::Sphere;
 
 // Color de los pixeles donde el rayo no golpea ninguna esfera
-const FONDO: Color = Color::new(255, 255, 255);
-
-// Distancia de la camara al plano de imagen. Un valor alto = FOV angosto, asi las esferas
-// grandes que estan lejos del centro casi no se deforman.
-pub const FOCAL: f32 = 6.0;
+const FONDO: Color = Color::new(20, 20, 30);
 
 pub fn cast_ray(ray_origin: &Vec3, ray_direction: &Vec3, objects: &[Sphere]) -> Color {
     // Nos quedamos con el impacto mas cercano a la camara
@@ -43,7 +39,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
             let screen_x = screen_x * aspect_ratio;
 
             // Direccion del rayo para este pixel
-            let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -FOCAL));
+            let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
 
             // Se lanza el rayo y se obtiene el color
             let pixel_color = cast_ray(&Vec3::new(0.0, 0.0, 0.0), &ray_direction, objects);

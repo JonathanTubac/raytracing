@@ -8,12 +8,12 @@ mod sphere;
 use framebuffer::Framebuffer;
 use minifb::{Key, Window, WindowOptions};
 use render::render;
-use scene::{IMG, gopher};
+use scene::esferas;
 
 fn main() {
-    let mut framebuffer = Framebuffer::new(IMG as usize, IMG as usize);
+    let mut framebuffer = Framebuffer::new(800, 600);
 
-    let objects = gopher();
+    let objects = esferas();
 
     render(&mut framebuffer, &objects);
 
