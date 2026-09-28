@@ -79,6 +79,15 @@ impl Intersect {
     }
 }
 
-pub trait RayIntersect {
+/// Todo lo que un rayo puede golpear. Es `Sync` porque los pixeles se calculan en paralelo
+/// y todos los hilos leen la misma escena.
+pub trait RayIntersect: Sync {
     fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect;
+}
+
+/// Permite mezclar objetos de distinto tipo en una misma escena (`Vec<Box<dyn RayIntersect>>`)
+impl<T: RayIntersect + ?Sized> RayIntersect for Box<T> {
+    fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect {
+        (**self).ray_intersect(ray_origin, ray_direction)
+    }
 }

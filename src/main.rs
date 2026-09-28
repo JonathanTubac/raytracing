@@ -1,6 +1,7 @@
 mod camera;
 mod color;
 mod controls;
+mod cube;
 mod framebuffer;
 mod light;
 mod ray_intersect;
@@ -13,15 +14,24 @@ use controls::Controls;
 use framebuffer::Framebuffer;
 use minifb::{Key, Window, WindowOptions};
 use render::render;
-use scene::{camara, esferas, luz};
+use scene::{camara, luz, objetos};
 
 fn main() {
     let mut framebuffer = Framebuffer::new(800, 600);
 
-    let objects = esferas();
+    let objects = objetos();
     let light = luz();
     let mut camera = camara();
     let mut controls = Controls::new();
+
+    // `cargo run -- --captura` renderiza un solo cuadro a output.png sin abrir la ventana
+    if std::env::args().any(|arg| arg == "--captura") {
+        render(&mut framebuffer, &objects, &camera, &light);
+        framebuffer
+            .save_to_file("output.png")
+            .expect("Error al guardar output.png");
+        return;
+    }
 
     let mut window = Window::new(
         "Raytracer",

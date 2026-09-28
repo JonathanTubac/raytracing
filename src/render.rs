@@ -6,7 +6,6 @@ use crate::color::Color;
 use crate::framebuffer::Framebuffer;
 use crate::light::Light;
 use crate::ray_intersect::{Intersect, RayIntersect};
-use crate::sphere::Sphere;
 
 // Color del cielo abajo (horizonte hacia el suelo) y arriba. Los rayos que no golpean nada,
 // incluidos los que salen de reflejos y refracciones, toman su color de este degradado.
@@ -72,10 +71,10 @@ fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
     }
 }
 
-pub fn cast_ray(
+pub fn cast_ray<O: RayIntersect>(
     ray_origin: &Vec3,
     ray_direction: &Vec3,
-    objects: &[Sphere],
+    objects: &[O],
     light: &Light,
     depth: u32,
 ) -> Color {
@@ -145,7 +144,12 @@ pub fn cast_ray(
     color
 }
 
-pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera, light: &Light) {
+pub fn render<O: RayIntersect>(
+    framebuffer: &mut Framebuffer,
+    objects: &[O],
+    camera: &Camera,
+    light: &Light,
+) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
@@ -187,7 +191,9 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cube::Cube;
     use crate::ray_intersect::Material;
+    use crate::sphere::Sphere;
     use crate::texture::Texture;
 
     // Material mate del color dado
@@ -211,6 +217,11 @@ mod tests {
     }
 
     fn lanzar(objects: &[Sphere]) -> Color {
+        lanzar_en(objects)
+    }
+
+    // Igual que `lanzar` pero con cualquier tipo de objeto
+    fn lanzar_en<O: RayIntersect>(objects: &[O]) -> Color {
         cast_ray(
             &Vec3::zeros(),
             &Vec3::new(0.0, 0.0, -1.0),
@@ -342,6 +353,29 @@ mod tests {
 
         // De frente el rayo atraviesa el vidrio sin desviarse y llega a la esfera roja
         assert_eq!(lanzar(&[vidrio, roja]).r, 200);
+    }
+
+    #[test]
+    fn un_cubo_de_vidrio_deja_ver_lo_que_tiene_detras() {
+        let vidrio = Cube::new(
+            Vec3::new(0.0, 0.0, -3.0),
+            1.0,
+            Material {
+                albedo: [0.0, 0.0],
+                transparency: 1.0,
+                refractive_index: 1.5,
+                ..mate(Color::new(255, 255, 255))
+            },
+        );
+        let roja = Cube::new(Vec3::new(0.0, 0.0, -8.0), 1.0, mate(Color::new(200, 0, 0)));
+
+        // Escena mezclada: los dos cubos y una esfera fuera del camino del rayo
+        let objects: Vec<Box<dyn RayIntersect>> = vec![
+            Box::new(vidrio),
+            Box::new(roja),
+            Box::new(esfera(5.0, 50)),
+        ];
+        assert_eq!(lanzar_en(&objects).r, 200);
     }
 
     #[test]

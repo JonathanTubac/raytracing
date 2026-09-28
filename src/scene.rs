@@ -3,7 +3,8 @@ use nalgebra_glm::Vec3;
 use crate::camera::Camera;
 use crate::color::Color;
 use crate::light::Light;
-use crate::ray_intersect::Material;
+use crate::cube::Cube;
+use crate::ray_intersect::{Material, RayIntersect};
 use crate::sphere::Sphere;
 use crate::texture::Texture;
 
@@ -11,8 +12,9 @@ use crate::texture::Texture;
 const MADERA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/wood.png");
 const MARMOL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/marble.png");
 
-/// Las esferas estan frente a la camara inicial, que mira hacia -Z, por eso tienen z negativo.
-pub fn esferas() -> Vec<Sphere> {
+/// Escena de prueba de cubos. Esta frente a la camara inicial, que mira hacia -Z, por eso
+/// los objetos tienen z negativo.
+pub fn objetos() -> Vec<Box<dyn RayIntersect>> {
     // Goma roja: mate, casi todo luz difusa y un brillo suave y muy tenue
     let goma = Material {
         albedo: [0.9, 0.1],
@@ -66,47 +68,51 @@ pub fn esferas() -> Vec<Sphere> {
         })
     };
 
-    vec![
-        // El vidrio va al frente y al centro, asi se ve la roja doblada a traves de el
-        Sphere {
-            center: Vec3::new(0.0, 0.0, -4.0),
-            radius: 1.2,
-            material: vidrio,
-        },
-        Sphere {
-            center: Vec3::new(0.3, 0.2, -8.5),
-            radius: 1.5,
-            material: goma,
-        },
-        Sphere {
-            center: Vec3::new(-3.2, 0.2, -6.0),
-            radius: 1.5,
-            material: madera,
-        },
-        Sphere {
-            center: Vec3::new(3.4, 0.2, -6.5),
-            radius: 1.6,
-            material: espejo,
-        },
-        Sphere {
-            center: Vec3::new(1.7, -1.2, -3.6),
-            radius: 0.75,
-            material: marmol,
-        },
-        Sphere {
-            center: Vec3::new(-1.9, -1.1, -3.8),
-            radius: 0.7,
-            material: ajedrez,
-        },
-    ]
+    let mut objects: Vec<Box<dyn RayIntersect>> = Vec::new();
+
+    // Piso de 7x7 bloques que alterna madera y marmol como un tablero; su cara de arriba
+    // queda en y = -1.5
+    for i in -3..=3 {
+        for k in -3..=3 {
+            let material = if (i + k) % 2 == 0 { marmol } else { madera };
+            let center = Vec3::new(i as f32, -2.0, -5.0 + k as f32);
+            objects.push(Box::new(Cube::new(center, 1.0, material)));
+        }
+    }
+
+    // Bloques apoyados sobre el piso
+    let bloques = [
+        // El vidrio va al frente y al centro, asi se ve la goma doblada a traves de el
+        (Vec3::new(0.0, -0.9, -3.5), 1.2, vidrio),
+        (Vec3::new(0.3, -1.0, -7.0), 1.0, goma),
+        (Vec3::new(2.3, -0.75, -5.8), 1.5, espejo),
+        (Vec3::new(1.6, -1.2, -3.2), 0.6, ajedrez),
+        // Torre de dos bloques de madera
+        (Vec3::new(-2.2, -1.0, -5.5), 1.0, madera),
+        (Vec3::new(-2.2, 0.0, -5.5), 1.0, madera),
+    ];
+    for (center, size, material) in bloques {
+        objects.push(Box::new(Cube::new(center, size, material)));
+    }
+
+    // Esfera de marmol encima de la torre
+    objects.push(Box::new(Sphere {
+        center: Vec3::new(-2.2, 1.0, -5.5),
+        radius: 0.5,
+        material: marmol,
+    }));
+
+    objects
 }
 
-/// La camara orbita alrededor del centro de las esferas. Empieza en el origen mirando hacia -Z.
+/// La camara orbita alrededor del centro del piso, un poco desde arriba
 pub fn camara() -> Camera {
-    Camera::new(Vec3::new(0.0, 0.0, -5.0), 5.0)
+    let mut camera = Camera::new(Vec3::new(0.0, -1.0, -5.0), 8.0);
+    camera.orbit(0.0, 0.45);
+    camera
 }
 
-/// Luz arriba a la izquierda y un poco al frente de las esferas
+/// Luz arriba a la izquierda y un poco al frente de la escena
 pub fn luz() -> Light {
     Light::new(Vec3::new(-5.0, 6.0, 2.0), 1.0)
 }
