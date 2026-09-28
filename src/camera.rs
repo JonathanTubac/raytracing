@@ -1,4 +1,4 @@
-use nalgebra_glm::{cross, normalize, Vec3};
+use crate::math::{cross, normalize, Vec3};
 
 const DISTANCIA_MIN: f32 = 1.0;
 const DISTANCIA_MAX: f32 = 30.0;

@@ -1,4 +1,4 @@
-use nalgebra_glm::Vec3;
+use crate::math::Vec3;
 
 use crate::camera::Camera;
 use crate::color::Color;
@@ -9,8 +9,8 @@ use crate::sphere::Sphere;
 use crate::texture::Texture;
 
 // Las texturas de imagen viven en la carpeta assets/ del proyecto
-const MADERA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/wood.png");
-const MARMOL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/marble.png");
+const MADERA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/wood.ppm");
+const MARMOL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/marble.ppm");
 
 /// Escena de prueba de cubos. Esta frente a la camara inicial, que mira hacia -Z, por eso
 /// los objetos tienen z negativo.

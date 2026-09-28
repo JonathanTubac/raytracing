@@ -1,4 +1,4 @@
-use nalgebra_glm::Vec3;
+use crate::math::Vec3;
 
 /// Luz puntual: ilumina desde `position` con una fuerza `intensity` (1.0 = normal)
 pub struct Light {

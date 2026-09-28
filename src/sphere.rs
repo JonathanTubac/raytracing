@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use nalgebra_glm::{dot, normalize, Vec3};
+use crate::math::{dot, normalize, Vec3};
 
 use crate::ray_intersect::{Intersect, Material, RayIntersect};
 

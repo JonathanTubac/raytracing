@@ -1,4 +1,4 @@
-use nalgebra_glm::Vec3;
+use crate::math::Vec3;
 
 use crate::ray_intersect::{Intersect, Material, RayIntersect};
 
@@ -209,7 +209,7 @@ mod tests {
         // Desde arriba y adelante, apuntando al borde superior del frente pero mas empinado:
         // tiene que entrar por la cara de arriba
         let origen = Vec3::new(0.0, 5.0, -3.5);
-        let direccion = nalgebra_glm::normalize(&Vec3::new(0.0, -1.0, -0.2));
+        let direccion = crate::math::normalize(&Vec3::new(0.0, -1.0, -0.2));
         let hit = cubo().ray_intersect(&origen, &direccion);
 
         assert!(hit.is_intersecting);

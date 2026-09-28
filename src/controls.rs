@@ -1,6 +1,5 @@
-use minifb::{Key, MouseButton, MouseMode, Window};
-
 use crate::camera::Camera;
+use crate::window::{Key, Window};
 
 // Cuanto rota la camara (radianes) por cada frame con una flecha apretada
 const ROTACION_TECLADO: f32 = 0.03;
@@ -47,8 +46,8 @@ impl Controls {
         }
 
         // Rotar arrastrando con el mouse: la escena sigue al cursor
-        let mouse = window.get_mouse_pos(MouseMode::Discard);
-        if window.get_mouse_down(MouseButton::Left) {
+        let mouse = window.mouse_pos();
+        if window.is_mouse_down() {
             if let (Some((x, y)), Some((last_x, last_y))) = (mouse, self.last_mouse) {
                 yaw -= (x - last_x) * ROTACION_MOUSE;
                 pitch += (y - last_y) * ROTACION_MOUSE;
@@ -70,11 +69,10 @@ impl Controls {
             camera.zoom(1.0 / ZOOM_TECLADO);
             moved = true;
         }
-        if let Some((_, scroll)) = window.get_scroll_wheel() {
-            if scroll != 0.0 {
-                camera.zoom((1.0 - ZOOM_RUEDA * scroll).clamp(0.5, 1.5));
-                moved = true;
-            }
+        let scroll = window.scroll_wheel();
+        if scroll != 0.0 {
+            camera.zoom((1.0 - ZOOM_RUEDA * scroll).clamp(0.5, 1.5));
+            moved = true;
         }
 
         moved

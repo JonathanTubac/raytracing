@@ -1,10 +1,11 @@
-use nalgebra_glm::{dot, normalize, Vec3};
-use rayon::prelude::*;
+use std::sync::Mutex;
+use std::thread;
 
 use crate::camera::Camera;
 use crate::color::Color;
 use crate::framebuffer::Framebuffer;
 use crate::light::Light;
+use crate::math::{dot, normalize, Vec3};
 use crate::ray_intersect::{Intersect, RayIntersect};
 
 // Color del cielo abajo (horizonte hacia el suelo) y arriba. Los rayos que no golpean nada,
@@ -154,38 +155,43 @@ pub fn render<O: RayIntersect>(
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
     let eye = camera.eye();
-
     let pixels_wide = framebuffer.width;
 
-    // Cada pixel es independiente de los demas, asi que los colores se calculan en
-    // paralelo entre todos los nucleos del procesador
-    let colors: Vec<u32> = (0..framebuffer.width * framebuffer.height)
-        .into_par_iter()
-        .map(|i| {
-            let x = i % pixels_wide;
-            let y = i / pixels_wide;
+    // Cada pixel es independiente de los demas, asi que se reparten entre todos los nucleos
+    // del procesador. El trabajo se reparte por filas: cada hilo toma la siguiente fila
+    // libre cuando termina la suya. Asi, si un hilo cae en filas caras (vidrio, espejos)
+    // los demas siguen avanzando en vez de quedarse esperando a que termine.
+    let rows = Mutex::new(framebuffer.buffer_mut().chunks_mut(pixels_wide).enumerate());
+    let threads = thread::available_parallelism().map_or(4, |n| n.get());
 
-            // Mapea el pixel a espacio de pantalla [-1, 1]
-            let screen_x = (2.0 * x as f32) / width - 1.0;
-            let screen_y = -(2.0 * y as f32) / height + 1.0;
+    thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    // El candado solo se toma para sacar la siguiente fila, no para pintarla
+                    let Some((y, row)) = rows.lock().unwrap().next() else {
+                        break;
+                    };
 
-            // Ajuste por aspect ratio
-            let screen_x = screen_x * aspect_ratio;
+                    for (x, pixel) in row.iter_mut().enumerate() {
+                        // Mapea el pixel a espacio de pantalla [-1, 1]
+                        let screen_x = (2.0 * x as f32) / width - 1.0;
+                        let screen_y = -(2.0 * y as f32) / height + 1.0;
 
-            // Direccion del rayo en el espacio de la camara, y luego en el del mundo
-            let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
-            let ray_direction = camera.basis_change(&ray_direction);
+                        // Ajuste por aspect ratio
+                        let screen_x = screen_x * aspect_ratio;
 
-            // Se lanza el rayo desde la camara y se obtiene el color
-            cast_ray(&eye, &ray_direction, objects, light, 0).to_hex()
-        })
-        .collect();
+                        // Direccion del rayo en el espacio de la camara, y luego en el del mundo
+                        let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
+                        let ray_direction = camera.basis_change(&ray_direction);
 
-    // Pintar el framebuffer es barato, se hace en orden
-    for (i, color) in colors.into_iter().enumerate() {
-        framebuffer.set_current_color(color);
-        framebuffer.point(i % pixels_wide, i / pixels_wide);
-    }
+                        // Se lanza el rayo desde la camara y se obtiene el color
+                        *pixel = cast_ray(&eye, &ray_direction, objects, light, 0).to_hex();
+                    }
+                }
+            });
+        }
+    });
 }
 
 #[cfg(test)]

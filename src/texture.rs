@@ -1,4 +1,5 @@
 use crate::color::Color;
+use crate::image_io::load_ppm;
 
 /// Imagen cargada en memoria para usarla como textura
 #[derive(Debug)]
@@ -30,24 +31,17 @@ pub enum Texture {
 }
 
 impl Texture {
-    /// Carga una imagen (PNG, JPG...) como textura.
+    /// Carga una imagen PPM (P6) como textura.
     pub fn from_file(path: &str) -> Texture {
-        let img = image::open(path)
-            .unwrap_or_else(|e| panic!("no se pudo cargar la textura {path}: {e}"))
-            .to_rgb8();
-
-        let (width, height) = img.dimensions();
-        let pixels = img
-            .pixels()
-            .map(|p| Color::new(p[0], p[1], p[2]))
-            .collect();
+        let image = load_ppm(path)
+            .unwrap_or_else(|e| panic!("no se pudo cargar la textura {path}: {e}"));
 
         // Se filtra a proposito: la textura vive lo que dura el programa, y asi `Texture`
         // sigue siendo `Copy` (y por lo tanto `Material` e `Intersect` tambien)
         Texture::Image(Box::leak(Box::new(ImageTexture {
-            width: width as usize,
-            height: height as usize,
-            pixels,
+            width: image.width,
+            height: image.height,
+            pixels: image.pixels,
         })))
     }
 
