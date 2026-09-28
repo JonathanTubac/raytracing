@@ -13,9 +13,6 @@ use crate::ray_intersect::{Intersect, RayIntersect};
 const FONDO_ABAJO: Color = Color::new(25, 25, 40);
 const FONDO_ARRIBA: Color = Color::new(110, 140, 200);
 
-// Color de la luz, usado en el brillo especular
-const BLANCO: Color = Color::new(255, 255, 255);
-
 // Luz minima que recibe cualquier superficie, aunque la luz no le llegue de frente
 const AMBIENTE: f32 = 0.15;
 
@@ -72,11 +69,40 @@ fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
     }
 }
 
+/// Cuanta luz de `light` llega a `point`: 1 si no hay nada en el camino y 0 si un objeto
+/// opaco la tapa. Los objetos transparentes dejan pasar una parte, asi el vidrio y el agua
+/// dan sombras mas claras que la piedra.
+fn light_visibility<O: RayIntersect>(
+    point: &Vec3,
+    normal: &Vec3,
+    light: &Light,
+    objects: &[O],
+) -> f32 {
+    let to_light = light.position - point;
+    let distance = to_light.norm();
+    let direction = to_light * (1.0 / distance);
+    let origin = offset_origin(point, &direction, normal);
+
+    // A diferencia de un rayo normal no importa cual objeto esta mas cerca: cualquiera que
+    // este entre el punto y la luz hace sombra
+    let mut visibility = 1.0;
+    for object in objects {
+        let hit = object.ray_intersect(&origin, &direction);
+        if hit.is_intersecting && hit.distance < distance {
+            visibility *= hit.material.transparency;
+            if visibility <= 0.0 {
+                return 0.0;
+            }
+        }
+    }
+    visibility
+}
+
 pub fn cast_ray<O: RayIntersect>(
     ray_origin: &Vec3,
     ray_direction: &Vec3,
     objects: &[O],
-    light: &Light,
+    lights: &[Light],
     depth: u32,
 ) -> Color {
     if depth > MAX_DEPTH {
@@ -102,31 +128,51 @@ pub fn cast_ray<O: RayIntersect>(
     };
     let material = hit.material;
 
-    // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
-    // Es el coseno del angulo entre la normal y la direccion hacia la luz. El color
-    // viene de la textura del material en el punto de impacto.
-    let light_dir = normalize(&(light.position - hit.point));
-    let diffuse_intensity = dot(&hit.normal, &light_dir).max(0.0) * light.intensity;
     let base = material.texture.color_at(hit.u, hit.v);
-    let diffuse = base * ((AMBIENTE + diffuse_intensity).min(1.0) * material.albedo[0]);
-
-    // Luz especular: el brillo de la luz sobre la superficie, que se ve solo cuando la
-    // camara esta cerca de la direccion en la que rebota la luz
     let view_dir = normalize(&-ray_direction);
-    let reflected_light = reflect(&-light_dir, &hit.normal);
-    let specular_intensity =
-        dot(&view_dir, &reflected_light).max(0.0).powf(material.specular) * light.intensity;
-    let specular = BLANCO * (specular_intensity * material.albedo[1]);
 
-    let mut color = diffuse + specular;
+    // Luz que llega directo de cada luz a este punto. Empieza con la luz ambiente: la
+    // minima que recibe cualquier superficie aunque ninguna luz le llegue de frente.
+    let mut diffuse_light = Color::rgb(AMBIENTE, AMBIENTE, AMBIENTE);
+    let mut specular = Color::black();
+
+    for light in lights {
+        // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
+        // Es el coseno del angulo entre la normal y la direccion hacia la luz.
+        let light_dir = normalize(&(light.position - hit.point));
+        let facing = dot(&hit.normal, &light_dir);
+        if facing <= 0.0 {
+            // La luz esta del otro lado de la superficie: no aporta nada, ni hace falta
+            // revisar si hay algo tapandola
+            continue;
+        }
+
+        // Sombra: si algo tapa la luz, esta no aporta nada (o solo una parte si es vidrio)
+        let visibility = light_visibility(&hit.point, &hit.normal, light, objects);
+        if visibility <= 0.0 {
+            continue;
+        }
+        let light_color = light.color * (light.intensity * visibility);
+
+        diffuse_light += light_color * facing;
+
+        // Luz especular: el brillo de la luz sobre la superficie, que se ve solo cuando la
+        // camara esta cerca de la direccion en la que rebota la luz
+        let reflected_light = reflect(&-light_dir, &hit.normal);
+        let shine = dot(&view_dir, &reflected_light).max(0.0).powf(material.specular);
+        specular += light_color * shine;
+    }
+
+    // El color de la superficie viene de la textura del material en el punto de impacto
+    let mut color = base * diffuse_light * material.albedo[0] + specular * material.albedo[1];
 
     // Reflejo: se lanza otro rayo en la direccion de rebote y se mezcla lo que encuentre
     if material.reflectivity > 0.0 {
         let direction = normalize(&reflect(ray_direction, &hit.normal));
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
-        let reflected = cast_ray(&origin, &direction, objects, light, depth + 1);
+        let reflected = cast_ray(&origin, &direction, objects, lights, depth + 1);
 
-        color = color + reflected * material.reflectivity;
+        color += reflected * material.reflectivity;
     }
 
     // Transparencia: se lanza otro rayo que atraviesa la superficie doblandose. Si no puede
@@ -137,9 +183,9 @@ pub fn cast_ray<O: RayIntersect>(
             None => normalize(&reflect(ray_direction, &hit.normal)),
         };
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
-        let refracted = cast_ray(&origin, &direction, objects, light, depth + 1);
+        let refracted = cast_ray(&origin, &direction, objects, lights, depth + 1);
 
-        color = color + refracted * material.transparency;
+        color += refracted * material.transparency;
     }
 
     color
@@ -149,7 +195,7 @@ pub fn render<O: RayIntersect>(
     framebuffer: &mut Framebuffer,
     objects: &[O],
     camera: &Camera,
-    light: &Light,
+    lights: &[Light],
 ) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
@@ -185,8 +231,10 @@ pub fn render<O: RayIntersect>(
                         let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
                         let ray_direction = camera.basis_change(&ray_direction);
 
-                        // Se lanza el rayo desde la camara y se obtiene el color
-                        *pixel = cast_ray(&eye, &ray_direction, objects, light, 0).to_hex();
+                        // Se lanza el rayo desde la camara. El color que devuelve puede
+                        // pasar de 1.0, asi que se comprime al rango de la pantalla.
+                        let color = cast_ray(&eye, &ray_direction, objects, lights, 0);
+                        *pixel = color.tone_map().to_hex();
                     }
                 }
             });
@@ -216,10 +264,20 @@ mod tests {
         }
     }
 
-    // Luz en el origen: le pega de frente a todo lo que esta sobre el eje Z, asi los
-    // colores de estas pruebas salen sin oscurecer
+    // Luz blanca en el origen: le pega de frente a todo lo que esta sobre el eje Z. Junto
+    // con la luz ambiente suma exactamente 1, asi los colores de estas pruebas salen tal
+    // cual, sin oscurecer ni aclarar.
     fn luz_de_frente() -> Light {
-        Light::new(Vec3::zeros(), 1.0)
+        blanca(Vec3::zeros(), 1.0 - AMBIENTE)
+    }
+
+    fn blanca(position: Vec3, intensity: f32) -> Light {
+        Light::new(position, Color::rgb(1.0, 1.0, 1.0), intensity)
+    }
+
+    // Canal rojo del color como byte, igual que se veria en pantalla
+    fn rojo(color: Color) -> u8 {
+        (color.to_hex() >> 16) as u8
     }
 
     fn lanzar(objects: &[Sphere]) -> Color {
@@ -232,7 +290,7 @@ mod tests {
             &Vec3::zeros(),
             &Vec3::new(0.0, 0.0, -1.0),
             objects,
-            &luz_de_frente(),
+            &[luz_de_frente()],
             0,
         )
     }
@@ -243,27 +301,27 @@ mod tests {
         let lejos = esfera(-5.0, 100);
 
         // Cerca agregada primero, y despues al reves
-        assert_eq!(lanzar(&[cerca, lejos]).r, 255);
-        assert_eq!(lanzar(&[esfera(-5.0, 100), esfera(-3.0, 255)]).r, 255);
+        assert_eq!(rojo(lanzar(&[cerca, lejos])), 255);
+        assert_eq!(rojo(lanzar(&[esfera(-5.0, 100), esfera(-3.0, 255)])), 255);
     }
 
     #[test]
     fn con_tres_esferas_gana_la_del_medio_si_es_la_mas_cercana() {
         let objects = [esfera(-6.0, 1), esfera(-2.0, 2), esfera(-4.0, 3)];
-        assert_eq!(lanzar(&objects).r, 2);
+        assert_eq!(rojo(lanzar(&objects)), 2);
     }
 
     #[test]
     fn ignora_esferas_detras_de_la_camara() {
         let objects = [esfera(4.0, 200), esfera(-5.0, 100)];
-        assert_eq!(lanzar(&objects).r, 100);
+        assert_eq!(rojo(lanzar(&objects)), 100);
     }
 
     #[test]
     fn si_no_hay_impacto_devuelve_el_fondo() {
         let objects = [esfera(-5.0, 100)];
         let direccion = Vec3::new(1.0, 0.0, 0.0);
-        let color = cast_ray(&Vec3::zeros(), &direccion, &objects, &luz_de_frente(), 0);
+        let color = cast_ray(&Vec3::zeros(), &direccion, &objects, &[luz_de_frente()], 0);
         assert_eq!(color.to_hex(), fondo(&direccion).to_hex());
     }
 
@@ -273,15 +331,15 @@ mod tests {
         let origen = Vec3::zeros();
         let direccion = Vec3::new(0.0, 0.0, -1.0);
 
-        let luz_delante = Light::new(Vec3::zeros(), 1.0);
-        let luz_detras = Light::new(Vec3::new(0.0, 0.0, -10.0), 1.0);
+        let luz_delante = blanca(Vec3::zeros(), 1.0 - AMBIENTE);
+        let luz_detras = blanca(Vec3::new(0.0, 0.0, -10.0), 1.0 - AMBIENTE);
 
-        let iluminada = cast_ray(&origen, &direccion, &objects, &luz_delante, 0);
-        let en_sombra = cast_ray(&origen, &direccion, &objects, &luz_detras, 0);
+        let iluminada = cast_ray(&origen, &direccion, &objects, &[luz_delante], 0);
+        let en_sombra = cast_ray(&origen, &direccion, &objects, &[luz_detras], 0);
 
-        assert_eq!(iluminada.r, 200);
+        assert_eq!(rojo(iluminada), 200);
         // Sin luz directa solo queda la luz ambiente
-        assert_eq!(en_sombra.r, (200.0 * AMBIENTE).round() as u8);
+        assert_eq!(rojo(en_sombra), (200.0 * AMBIENTE).round() as u8);
     }
 
     #[test]
@@ -289,7 +347,7 @@ mod tests {
         let mut esfera = esfera(-5.0, 200);
         esfera.material.albedo = [0.5, 0.0];
 
-        assert_eq!(lanzar(&[esfera]).r, 100);
+        assert_eq!(rojo(lanzar(&[esfera])), 100);
     }
 
     #[test]
@@ -320,9 +378,14 @@ mod tests {
         };
 
         // La luz esta justo en la camara, asi que el brillo cae en el centro de la esfera
-        assert_eq!(lanzar(&[mate_negro(0.0)]).r, 0);
-        assert_eq!(lanzar(&[mate_negro(1.0)]).r, 255);
-        assert_eq!(lanzar(&[mate_negro(0.5)]).r, 128);
+        let brillo = |albedo_especular: f32| {
+            let objects = [mate_negro(albedo_especular)];
+            let luz = blanca(Vec3::zeros(), 1.0);
+            rojo(cast_ray(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0), &objects, &[luz], 0))
+        };
+        assert_eq!(brillo(0.0), 0);
+        assert_eq!(brillo(1.0), 255);
+        assert_eq!(brillo(0.5), 128);
     }
 
     #[test]
@@ -340,7 +403,7 @@ mod tests {
         // que se ve mira hacia la camara, que es donde esta la luz.
         let roja = esfera(5.0, 200);
 
-        assert_eq!(lanzar(&[espejo, roja]).r, 200);
+        assert_eq!(rojo(lanzar(&[espejo, roja])), 200);
     }
 
     #[test]
@@ -358,7 +421,7 @@ mod tests {
         let roja = esfera(-8.0, 200);
 
         // De frente el rayo atraviesa el vidrio sin desviarse y llega a la esfera roja
-        assert_eq!(lanzar(&[vidrio, roja]).r, 200);
+        assert_eq!(rojo(lanzar(&[vidrio, roja])), 200);
     }
 
     #[test]
@@ -381,7 +444,66 @@ mod tests {
             Box::new(roja),
             Box::new(esfera(5.0, 50)),
         ];
-        assert_eq!(lanzar_en(&objects).r, 200);
+        assert_eq!(rojo(lanzar_en(&objects)), 200);
+    }
+
+    // Piso blanco (cara de arriba en y = 0) y una luz justo encima del punto que se mira
+    fn piso() -> Cube {
+        Cube::new(Vec3::new(0.0, -5.0, 0.0), 10.0, mate(Color::new(200, 200, 200)))
+    }
+
+    fn mirar_el_piso<O: RayIntersect>(objects: &[O], lights: &[Light]) -> Color {
+        // Desde arriba y adelante hacia el origen, que queda justo sobre la cara del piso
+        let origen = Vec3::new(0.0, 5.0, 3.0);
+        cast_ray(&origen, &normalize(&-origen), objects, lights, 0)
+    }
+
+    fn con_bloque_encima(material: Material) -> Vec<Box<dyn RayIntersect>> {
+        let bloque = Cube::new(Vec3::new(0.0, 2.0, 0.0), 1.0, material);
+        vec![Box::new(piso()), Box::new(bloque)]
+    }
+
+    #[test]
+    fn un_bloque_opaco_entre_la_luz_y_el_piso_hace_sombra() {
+        let luz = [luz_encima()];
+        let sin_bloque = mirar_el_piso(&[piso()], &luz);
+        let con_bloque = mirar_el_piso(&con_bloque_encima(mate(Color::new(0, 0, 0))), &luz);
+
+        assert_eq!(rojo(sin_bloque), 200);
+        // En la sombra solo queda la luz ambiente
+        assert_eq!(rojo(con_bloque), (200.0 * AMBIENTE).round() as u8);
+    }
+
+    #[test]
+    fn un_bloque_transparente_hace_una_sombra_mas_clara() {
+        let luz = [luz_encima()];
+        let vidrio = Material { transparency: 0.5, ..mate(Color::new(0, 0, 0)) };
+        let piedra = mate(Color::new(0, 0, 0));
+
+        let bajo_vidrio = rojo(mirar_el_piso(&con_bloque_encima(vidrio), &luz));
+        let bajo_piedra = rojo(mirar_el_piso(&con_bloque_encima(piedra), &luz));
+
+        assert!(bajo_vidrio > bajo_piedra && bajo_vidrio < 200, "{bajo_vidrio} vs {bajo_piedra}");
+    }
+
+    // Luz encima del punto del piso que se mira, con la intensidad justa para que junto con
+    // el ambiente sume 1
+    fn luz_encima() -> Light {
+        blanca(Vec3::new(0.0, 4.0, 0.0), 1.0 - AMBIENTE)
+    }
+
+    #[test]
+    fn dos_luces_iluminan_mas_que_una_y_la_luz_de_color_tine() {
+        let una = blanca(Vec3::new(0.0, 4.0, 0.0), 0.3);
+        let otra = blanca(Vec3::new(1.0, 4.0, 1.0), 0.3);
+
+        let con_una = mirar_el_piso(&[piso()], &[una]);
+        let con_dos = mirar_el_piso(&[piso()], &[blanca(Vec3::new(0.0, 4.0, 0.0), 0.3), otra]);
+        assert!(con_dos.r > con_una.r);
+
+        let azul = Light::new(Vec3::new(0.0, 4.0, 0.0), Color::rgb(0.0, 0.0, 1.0), 0.8);
+        let tenido = mirar_el_piso(&[piso()], &[azul]);
+        assert!(tenido.b > tenido.r * 2.0);
     }
 
     #[test]

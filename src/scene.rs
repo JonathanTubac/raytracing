@@ -112,7 +112,11 @@ pub fn camara() -> Camera {
     camera
 }
 
-/// Luz arriba a la izquierda y un poco al frente de la escena
-pub fn luz() -> Light {
-    Light::new(Vec3::new(-5.0, 6.0, 2.0), 1.0)
+/// Un sol calido arriba a la izquierda que da la luz principal y las sombras, y una luz
+/// fria y mas debil desde atras a la derecha para que las caras en sombra no queden planas
+pub fn luces() -> Vec<Light> {
+    vec![
+        Light::new(Vec3::new(-5.0, 8.0, 2.0), Color::rgb(1.0, 0.95, 0.85), 0.9),
+        Light::new(Vec3::new(6.0, 4.0, -12.0), Color::rgb(0.6, 0.7, 1.0), 0.35),
+    ]
 }
