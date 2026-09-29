@@ -7,11 +7,7 @@ use crate::framebuffer::Framebuffer;
 use crate::light::Light;
 use crate::math::{dot, normalize, Vec3};
 use crate::ray_intersect::{Intersect, RayIntersect};
-
-// Color del cielo abajo (horizonte hacia el suelo) y arriba. Los rayos que no golpean nada,
-// incluidos los que salen de reflejos y refracciones, toman su color de este degradado.
-const FONDO_ABAJO: Color = Color::new(25, 25, 40);
-const FONDO_ARRIBA: Color = Color::new(110, 140, 200);
+use crate::skybox::Skybox;
 
 // Luz minima que recibe cualquier superficie, aunque la luz no le llegue de frente
 const AMBIENTE: f32 = 0.15;
@@ -22,10 +18,12 @@ const MAX_DEPTH: u32 = 4;
 // Separacion al lanzar rayos nuevos desde una superficie, para que no choquen con ella misma
 const BIAS: f32 = 1e-3;
 
-/// Color del fondo en una direccion: un degradado vertical
-fn fondo(direction: &Vec3) -> Color {
-    let t = (0.5 * (direction.y + 1.0)).clamp(0.0, 1.0);
-    Color::lerp(FONDO_ABAJO, FONDO_ARRIBA, t)
+/// Todo lo que un rayo puede encontrar: los objetos, las luces que los iluminan y el cielo
+/// que se ve cuando no choca con nada
+pub struct Scene<'a, O> {
+    pub objects: &'a [O],
+    pub lights: &'a [Light],
+    pub skybox: &'a Skybox,
 }
 
 /// Direccion en que rebota un rayo que llega con `incident` a una superficie con esa normal
@@ -108,12 +106,11 @@ fn light_visibility<O: RayIntersect>(
 pub fn cast_ray<O: RayIntersect>(
     ray_origin: &Vec3,
     ray_direction: &Vec3,
-    objects: &[O],
-    lights: &[Light],
+    scene: &Scene<O>,
     depth: u32,
 ) -> Color {
     if depth > MAX_DEPTH {
-        return fondo(ray_direction);
+        return scene.skybox.sample(ray_direction);
     }
 
     // Z-buffer: guarda la distancia del impacto mas cercano visto hasta ahora en este rayo.
@@ -122,7 +119,7 @@ pub fn cast_ray<O: RayIntersect>(
     let mut zbuffer = f32::INFINITY;
     let mut closest: Option<Intersect> = None;
 
-    for object in objects {
+    for object in scene.objects {
         let intersect = object.ray_intersect(ray_origin, ray_direction);
         if intersect.is_intersecting && intersect.distance < zbuffer {
             zbuffer = intersect.distance;
@@ -130,8 +127,9 @@ pub fn cast_ray<O: RayIntersect>(
         }
     }
 
+    // Si no choca con nada se ve el cielo en esa direccion
     let Some(mut hit) = closest else {
-        return fondo(ray_direction);
+        return scene.skybox.sample(ray_direction);
     };
     let material = hit.material;
 
@@ -143,7 +141,7 @@ pub fn cast_ray<O: RayIntersect>(
     // como un rebote, porque en realidad no choco con nada.
     if material.is_hole(alpha) {
         let origin = offset_origin(&hit.point, ray_direction, &hit.normal);
-        return cast_ray(&origin, ray_direction, objects, lights, depth);
+        return cast_ray(&origin, ray_direction, scene, depth);
     }
 
     // Si se ve la cara desde adentro de un bloque opaco (la cara de atras de un bloque de
@@ -160,7 +158,7 @@ pub fn cast_ray<O: RayIntersect>(
     let mut diffuse_light = Color::rgb(AMBIENTE, AMBIENTE, AMBIENTE);
     let mut specular = Color::black();
 
-    for light in lights {
+    for light in scene.lights {
         // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
         // Es el coseno del angulo entre la normal y la direccion hacia la luz.
         let light_dir = normalize(&(light.position - hit.point));
@@ -172,7 +170,7 @@ pub fn cast_ray<O: RayIntersect>(
         }
 
         // Sombra: si algo tapa la luz, esta no aporta nada (o solo una parte si es vidrio)
-        let visibility = light_visibility(&hit.point, &hit.normal, light, objects);
+        let visibility = light_visibility(&hit.point, &hit.normal, light, scene.objects);
         if visibility <= 0.0 {
             continue;
         }
@@ -197,7 +195,7 @@ pub fn cast_ray<O: RayIntersect>(
     if material.reflectivity > 0.0 {
         let direction = normalize(&reflect(ray_direction, &hit.normal));
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
-        let reflected = cast_ray(&origin, &direction, objects, lights, depth + 1);
+        let reflected = cast_ray(&origin, &direction, scene, depth + 1);
 
         color += reflected * material.reflectivity;
     }
@@ -210,7 +208,7 @@ pub fn cast_ray<O: RayIntersect>(
             None => normalize(&reflect(ray_direction, &hit.normal)),
         };
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
-        let refracted = cast_ray(&origin, &direction, objects, lights, depth + 1);
+        let refracted = cast_ray(&origin, &direction, scene, depth + 1);
 
         color += refracted * transparency;
     }
@@ -218,12 +216,7 @@ pub fn cast_ray<O: RayIntersect>(
     color
 }
 
-pub fn render<O: RayIntersect>(
-    framebuffer: &mut Framebuffer,
-    objects: &[O],
-    camera: &Camera,
-    lights: &[Light],
-) {
+pub fn render<O: RayIntersect>(framebuffer: &mut Framebuffer, scene: &Scene<O>, camera: &Camera) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
@@ -260,7 +253,7 @@ pub fn render<O: RayIntersect>(
 
                         // Se lanza el rayo desde la camara. El color que devuelve puede
                         // pasar de 1.0, asi que se comprime al rango de la pantalla.
-                        let color = cast_ray(&eye, &ray_direction, objects, lights, 0);
+                        let color = cast_ray(&eye, &ray_direction, scene, 0);
                         *pixel = color.tone_map().to_hex();
                     }
                 }
@@ -313,13 +306,23 @@ mod tests {
 
     // Igual que `lanzar` pero con cualquier tipo de objeto
     fn lanzar_en<O: RayIntersect>(objects: &[O]) -> Color {
-        cast_ray(
-            &Vec3::zeros(),
-            &Vec3::new(0.0, 0.0, -1.0),
-            objects,
-            &[luz_de_frente()],
-            0,
-        )
+        trazar(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0), objects, &[luz_de_frente()])
+    }
+
+    // Cielo de prueba: un degradado de oscuro abajo a claro arriba
+    fn cielo() -> Skybox {
+        Skybox::from_fn(8, |d| Color::rgb(0.1, 0.2, 0.5 + 0.4 * d.y))
+    }
+
+    // Lanza un rayo en una escena con esos objetos y luces y el cielo de prueba
+    fn trazar<O: RayIntersect>(
+        origen: &Vec3,
+        direccion: &Vec3,
+        objects: &[O],
+        lights: &[Light],
+    ) -> Color {
+        let skybox = cielo();
+        cast_ray(origen, direccion, &Scene { objects, lights, skybox: &skybox }, 0)
     }
 
     #[test]
@@ -348,8 +351,8 @@ mod tests {
     fn si_no_hay_impacto_devuelve_el_fondo() {
         let objects = [esfera(-5.0, 100)];
         let direccion = Vec3::new(1.0, 0.0, 0.0);
-        let color = cast_ray(&Vec3::zeros(), &direccion, &objects, &[luz_de_frente()], 0);
-        assert_eq!(color.to_hex(), fondo(&direccion).to_hex());
+        let color = trazar(&Vec3::zeros(), &direccion, &objects, &[luz_de_frente()]);
+        assert_eq!(color.to_hex(), cielo().sample(&direccion).to_hex());
     }
 
     #[test]
@@ -361,8 +364,8 @@ mod tests {
         let luz_delante = blanca(Vec3::zeros(), 1.0 - AMBIENTE);
         let luz_detras = blanca(Vec3::new(0.0, 0.0, -10.0), 1.0 - AMBIENTE);
 
-        let iluminada = cast_ray(&origen, &direccion, &objects, &[luz_delante], 0);
-        let en_sombra = cast_ray(&origen, &direccion, &objects, &[luz_detras], 0);
+        let iluminada = trazar(&origen, &direccion, &objects, &[luz_delante]);
+        let en_sombra = trazar(&origen, &direccion, &objects, &[luz_detras]);
 
         assert_eq!(rojo(iluminada), 200);
         // Sin luz directa solo queda la luz ambiente
@@ -408,7 +411,7 @@ mod tests {
         let brillo = |albedo_especular: f32| {
             let objects = [mate_negro(albedo_especular)];
             let luz = blanca(Vec3::zeros(), 1.0);
-            rojo(cast_ray(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0), &objects, &[luz], 0))
+            rojo(trazar(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0), &objects, &[luz]))
         };
         assert_eq!(brillo(0.0), 0);
         assert_eq!(brillo(1.0), 255);
@@ -482,7 +485,7 @@ mod tests {
     fn mirar_el_piso<O: RayIntersect>(objects: &[O], lights: &[Light]) -> Color {
         // Desde arriba y adelante hacia el origen, que queda justo sobre la cara del piso
         let origen = Vec3::new(0.0, 5.0, 3.0);
-        cast_ray(&origen, &normalize(&-origen), objects, lights, 0)
+        trazar(&origen, &normalize(&-origen), objects, lights)
     }
 
     fn con_bloque_encima(material: Material) -> Vec<Box<dyn RayIntersect>> {

@@ -425,7 +425,7 @@ mod tests {
         // Sumas de control calculadas con la libreria PIL de Python sobre los mismos
         // archivos: la suma de todos los bytes RGBA y una suma ponderada por posicion, que
         // cambia si un solo pixel sale distinto o en otro lugar. Cubren PNG con paleta de 4
-        // y 8 bits, gris, RGB y RGBA, con y sin transparencia.
+        // y 8 bits, gris de 1 y 8 bits, RGB y RGBA, con y sin transparencia.
         let esperado = [
             ("bricks", 150165, 61716026),
             ("cobblestone", 163249, 66882931),
@@ -449,6 +449,9 @@ mod tests {
             ("stone", 161700, 66822126),
             ("stone_bricks", 159163, 65265800),
             ("water_still", 5826636, 849043403),
+            // Del cielo: el sol (paleta) y las nubes (gris de 1 bit con un color transparente)
+            ("sun", 325228, 727741800),
+            ("clouds", 18465060, 887664418),
         ];
 
         for (nombre, suma, ponderada) in esperado {

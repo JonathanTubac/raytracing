@@ -5,6 +5,7 @@ use crate::cube::Cube;
 use crate::light::Light;
 use crate::math::Vec3;
 use crate::ray_intersect::{Material, RayIntersect};
+use crate::skybox::Skybox;
 
 /// Bloque de lado 1 en la posicion entera (x, y, z) de la grilla
 fn bloque(x: i32, y: i32, z: i32, material: Material) -> Box<dyn RayIntersect> {
@@ -53,18 +54,30 @@ pub fn objetos() -> Vec<Box<dyn RayIntersect>> {
     objects
 }
 
+// Centro de la escena, alrededor del cual orbita la camara
+const CENTRO: Vec3 = Vec3::new(0.0, -1.0, -5.0);
+
+// Posicion de la luz del sol: arriba a la izquierda y un poco al frente
+const SOL: Vec3 = Vec3::new(-5.0, 8.0, 2.0);
+
 /// La camara orbita alrededor del centro del piso, un poco desde arriba
 pub fn camara() -> Camera {
-    let mut camera = Camera::new(Vec3::new(0.0, -1.0, -5.0), 9.0);
+    let mut camera = Camera::new(CENTRO, 9.0);
     camera.orbit(0.0, 0.45);
     camera
 }
 
-/// Un sol calido arriba a la izquierda que da la luz principal y las sombras, y una luz
-/// fria y mas debil desde atras a la derecha para que las caras en sombra no queden planas
+/// Un sol calido que da la luz principal y las sombras, y una luz fria y mas debil desde
+/// atras a la derecha (la que rebota del cielo) para que las caras en sombra no queden planas
 pub fn luces() -> Vec<Light> {
     vec![
-        Light::new(Vec3::new(-5.0, 8.0, 2.0), Color::rgb(1.0, 0.95, 0.85), 0.9),
+        Light::new(SOL, Color::rgb(1.0, 0.95, 0.85), 0.9),
         Light::new(Vec3::new(6.0, 4.0, -12.0), Color::rgb(0.6, 0.7, 1.0), 0.35),
     ]
+}
+
+/// Cielo de Minecraft con el sol dibujado justo donde esta la luz del sol, asi las sombras
+/// caen en la direccion contraria a donde se ve el sol
+pub fn cielo() -> Skybox {
+    Skybox::minecraft(SOL - CENTRO)
 }

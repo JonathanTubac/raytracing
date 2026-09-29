@@ -48,8 +48,9 @@ impl ImageTexture {
         }))
     }
 
-    /// Pixel mas cercano, sin suavizar, para que se vean los pixeles como en Minecraft
-    fn sample(&self, u: f32, v: f32) -> (Color, Option<f32>) {
+    /// Pixel mas cercano, sin suavizar, para que se vean los pixeles como en Minecraft.
+    /// Devuelve el color y la opacidad (`None` si la imagen es toda opaca).
+    pub fn sample(&self, u: f32, v: f32) -> (Color, Option<f32>) {
         // u da la vuelta (0 y 1 son el mismo borde), v no
         let x = (u.rem_euclid(1.0) * self.width as f32) as usize;
         let y = (v.clamp(0.0, 1.0) * self.height as f32) as usize;
