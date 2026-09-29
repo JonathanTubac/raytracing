@@ -1,6 +1,6 @@
 use crate::math::Vec3;
 
-use crate::ray_intersect::{Intersect, Material, RayIntersect};
+use crate::ray_intersect::{Face, Intersect, Material, RayIntersect};
 
 /// Cubo (o caja) alineado a los ejes, definido por su esquina minima y maxima
 pub struct Cube {
@@ -112,8 +112,13 @@ impl RayIntersect for Cube {
         let point = ray_origin + ray_direction * distance;
         let normal = Cube::face_normal(axis, positive);
         let (u, v) = self.face_uv(&point, &normal);
+        let face = match (axis, positive) {
+            (1, true) => Face::Top,
+            (1, false) => Face::Bottom,
+            _ => Face::Side,
+        };
 
-        Intersect::new(point, normal, distance, self.material, u, v)
+        Intersect::new(point, normal, distance, self.material, u, v).on_face(face)
     }
 }
 
@@ -202,6 +207,18 @@ mod tests {
         // Lo mismo en la cara derecha (+X), vista desde afuera: su izquierda es +Z
         let hit = cubo.ray_intersect(&Vec3::new(5.0, 0.9, -4.1), &Vec3::new(-1.0, 0.0, 0.0));
         assert!(hit.u < 0.1 && hit.v < 0.1, "u = {}, v = {}", hit.u, hit.v);
+    }
+
+    #[test]
+    fn distingue_la_cara_de_arriba_la_de_abajo_y_los_lados() {
+        let cubo = cubo();
+        let centro = Vec3::new(0.0, 0.0, -5.0);
+        let cara = |eje: Vec3| cubo.ray_intersect(&(centro + eje * 5.0), &-eje).face;
+
+        assert_eq!(cara(Vec3::new(0.0, 1.0, 0.0)), Face::Top);
+        assert_eq!(cara(Vec3::new(0.0, -1.0, 0.0)), Face::Bottom);
+        assert_eq!(cara(Vec3::new(1.0, 0.0, 0.0)), Face::Side);
+        assert_eq!(cara(Vec3::new(0.0, 0.0, -1.0)), Face::Side);
     }
 
     #[test]

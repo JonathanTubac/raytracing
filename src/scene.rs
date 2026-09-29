@@ -1,113 +1,61 @@
-use crate::math::Vec3;
-
+use crate::blocks::Blocks;
 use crate::camera::Camera;
 use crate::color::Color;
-use crate::light::Light;
 use crate::cube::Cube;
+use crate::light::Light;
+use crate::math::Vec3;
 use crate::ray_intersect::{Material, RayIntersect};
-use crate::sphere::Sphere;
-use crate::texture::Texture;
 
-// Las texturas de imagen viven en la carpeta assets/ del proyecto
-const MADERA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/wood.ppm");
-const MARMOL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/marble.ppm");
+/// Bloque de lado 1 en la posicion entera (x, y, z) de la grilla
+fn bloque(x: i32, y: i32, z: i32, material: Material) -> Box<dyn RayIntersect> {
+    Box::new(Cube::new(Vec3::new(x as f32, y as f32, z as f32), 1.0, material))
+}
 
-/// Escena de prueba de cubos. Esta frente a la camara inicial, que mira hacia -Z, por eso
-/// los objetos tienen z negativo.
+/// Vitrina de prueba con los bloques de Minecraft: un piso de pasto con una poza de agua y
+/// una fila de cada bloque encima. Esta frente a la camara inicial, que mira hacia -Z, por
+/// eso los objetos tienen z negativo.
 pub fn objetos() -> Vec<Box<dyn RayIntersect>> {
-    // Goma roja: mate, casi todo luz difusa y un brillo suave y muy tenue
-    let goma = Material {
-        albedo: [0.9, 0.1],
-        specular: 10.0,
-        ..Material::new(Texture::Solid(Color::new(200, 40, 40)))
-    };
+    let b = Blocks::load();
+    let mut objects = Vec::new();
 
-    // Espejo: casi no tiene luz difusa, un brillo especular chiquito y fuerte,
-    // y refleja el 80% de lo que tiene alrededor
-    let espejo = Material {
-        albedo: [0.1, 0.9],
-        specular: 1500.0,
-        reflectivity: 0.8,
-        ..Material::new(Texture::Solid(Color::new(210, 210, 220)))
-    };
+    // Poza de agua de 2x2 en el piso, con arena en el fondo
+    let es_poza = |x: i32, z: i32| (1..=2).contains(&x) && (-4..=-3).contains(&z);
 
-    // Vidrio: no tiene color propio, deja pasar el 90% de la luz doblandola con indice
-    // de refraccion 1.5, refleja un poco (10%) y tiene un brillo especular
-    let vidrio = Material {
-        albedo: [0.0, 0.5],
-        specular: 125.0,
-        transparency: 0.9,
-        reflectivity: 0.1,
-        refractive_index: 1.5,
-        ..Material::new(Texture::Solid(Color::new(255, 255, 255)))
-    };
-
-    // Madera: textura de imagen, mate con un poco de brillo
-    let madera = Material {
-        albedo: [0.85, 0.15],
-        specular: 20.0,
-        ..Material::new(Texture::from_file(MADERA))
-    };
-
-    // Marmol pulido: textura de imagen, brillo marcado y un reflejo leve
-    let marmol = Material {
-        albedo: [0.7, 0.3],
-        specular: 80.0,
-        reflectivity: 0.15,
-        ..Material::new(Texture::from_file(MARMOL))
-    };
-
-    // Ajedrez: textura generada por codigo, sin imagen
-    let ajedrez = Material {
-        albedo: [0.8, 0.2],
-        specular: 40.0,
-        ..Material::new(Texture::Checker {
-            a: Color::new(240, 240, 240),
-            b: Color::new(40, 40, 60),
-            tiles: 6,
-        })
-    };
-
-    let mut objects: Vec<Box<dyn RayIntersect>> = Vec::new();
-
-    // Piso de 7x7 bloques que alterna madera y marmol como un tablero; su cara de arriba
-    // queda en y = -1.5
-    for i in -3..=3 {
-        for k in -3..=3 {
-            let material = if (i + k) % 2 == 0 { marmol } else { madera };
-            let center = Vec3::new(i as f32, -2.0, -5.0 + k as f32);
-            objects.push(Box::new(Cube::new(center, 1.0, material)));
+    // Piso de 9x9 bloques; su cara de arriba queda en y = -1.5
+    for x in -4..=4 {
+        for z in -9..=-1 {
+            if es_poza(x, z) {
+                objects.push(bloque(x, -2, z, b.water));
+                objects.push(bloque(x, -3, z, b.sand));
+            } else {
+                objects.push(bloque(x, -2, z, b.grass));
+            }
         }
     }
 
-    // Bloques apoyados sobre el piso
-    let bloques = [
-        // El vidrio va al frente y al centro, asi se ve la goma doblada a traves de el
-        (Vec3::new(0.0, -0.9, -3.5), 1.2, vidrio),
-        (Vec3::new(0.3, -1.0, -7.0), 1.0, goma),
-        (Vec3::new(2.3, -0.75, -5.8), 1.5, espejo),
-        (Vec3::new(1.6, -1.2, -3.2), 0.6, ajedrez),
-        // Torre de dos bloques de madera
-        (Vec3::new(-2.2, -1.0, -5.5), 1.0, madera),
-        (Vec3::new(-2.2, 0.0, -5.5), 1.0, madera),
-    ];
-    for (center, size, material) in bloques {
-        objects.push(Box::new(Cube::new(center, size, material)));
+    // Fila del fondo: un bloque de cada material opaco
+    let fila = [b.stone, b.cobblestone, b.planks, b.dirt, b.diamond, b.gold, b.obsidian];
+    for (i, material) in fila.into_iter().enumerate() {
+        objects.push(bloque(i as i32 - 3, -1, -7, material));
     }
 
-    // Esfera de marmol encima de la torre
-    objects.push(Box::new(Sphere {
-        center: Vec3::new(-2.2, 1.0, -5.5),
-        radius: 0.5,
-        material: marmol,
-    }));
+    // Arbolito: tronco de dos bloques y una copa de hojas
+    objects.push(bloque(-3, -1, -4, b.log));
+    objects.push(bloque(-3, 0, -4, b.log));
+    for (x, y, z) in [(-3, 1, -4), (-4, 0, -4), (-2, 0, -4), (-3, 0, -5), (-3, 0, -3)] {
+        objects.push(bloque(x, y, z, b.leaves));
+    }
+
+    // Vidrio al frente y al centro, para ver la fila del fondo doblada a traves de el
+    objects.push(bloque(0, -1, -4, b.glass));
+    objects.push(bloque(-1, -1, -3, b.glowstone));
 
     objects
 }
 
 /// La camara orbita alrededor del centro del piso, un poco desde arriba
 pub fn camara() -> Camera {
-    let mut camera = Camera::new(Vec3::new(0.0, -1.0, -5.0), 8.0);
+    let mut camera = Camera::new(Vec3::new(0.0, -1.0, -5.0), 9.0);
     camera.orbit(0.0, 0.45);
     camera
 }

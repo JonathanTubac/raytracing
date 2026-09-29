@@ -1,14 +1,19 @@
+mod blocks;
 mod camera;
 mod color;
 mod controls;
 mod cube;
 mod framebuffer;
 mod image_io;
+mod inflate;
 mod light;
 mod math;
 mod ray_intersect;
 mod render;
 mod scene;
+// Las esferas quedaron de las primeras versiones; el diorama es solo de cubos, pero las
+// pruebas del render las siguen usando
+#[cfg(test)]
 mod sphere;
 mod texture;
 mod window;

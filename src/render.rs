@@ -88,11 +88,18 @@ fn light_visibility<O: RayIntersect>(
     let mut visibility = 1.0;
     for object in objects {
         let hit = object.ray_intersect(&origin, &direction);
-        if hit.is_intersecting && hit.distance < distance {
-            visibility *= hit.material.transparency;
-            if visibility <= 0.0 {
-                return 0.0;
-            }
+        if !hit.is_intersecting || hit.distance >= distance {
+            continue;
+        }
+
+        // Cuanta luz deja pasar depende del pixel de la textura donde cruza el rayo: por
+        // el hueco entre las hojas pasa toda, por el marco del vidrio nada
+        let (_, alpha) = hit.material.texture.sample(hit.u, hit.v, hit.face);
+        if !hit.material.is_hole(alpha) {
+            visibility *= hit.material.transparency_at(alpha);
+        }
+        if visibility <= 0.0 {
+            return 0.0;
         }
     }
     visibility
@@ -123,12 +130,29 @@ pub fn cast_ray<O: RayIntersect>(
         }
     }
 
-    let Some(hit) = closest else {
+    let Some(mut hit) = closest else {
         return fondo(ray_direction);
     };
     let material = hit.material;
 
-    let base = material.texture.color_at(hit.u, hit.v);
+    // El color de la superficie viene de la textura del material en el punto de impacto,
+    // con la imagen que corresponde a esa cara del bloque
+    let (base, alpha) = material.texture.sample(hit.u, hit.v, hit.face);
+
+    // Hueco en la textura (entre las hojas): el rayo sigue de largo desde ahi. No cuenta
+    // como un rebote, porque en realidad no choco con nada.
+    if material.is_hole(alpha) {
+        let origin = offset_origin(&hit.point, ray_direction, &hit.normal);
+        return cast_ray(&origin, ray_direction, objects, lights, depth);
+    }
+
+    // Si se ve la cara desde adentro de un bloque opaco (la cara de atras de un bloque de
+    // hojas, vista a traves de un hueco) se ilumina como si mirara hacia la camara
+    if material.transparency == 0.0 && dot(&hit.normal, ray_direction) > 0.0 {
+        hit.normal = -hit.normal;
+    }
+
+    let transparency = material.transparency_at(alpha);
     let view_dir = normalize(&-ray_direction);
 
     // Luz que llega directo de cada luz a este punto. Empieza con la luz ambiente: la
@@ -163,8 +187,11 @@ pub fn cast_ray<O: RayIntersect>(
         specular += light_color * shine;
     }
 
-    // El color de la superficie viene de la textura del material en el punto de impacto
-    let mut color = base * diffuse_light * material.albedo[0] + specular * material.albedo[1];
+    // En los materiales transparentes con textura (vidrio, agua) la luz difusa sale solo
+    // de la parte pintada: el marco del vidrio se ve con su color y el centro no aporta
+    let coverage = if material.transparency > 0.0 { alpha.unwrap_or(1.0) } else { 1.0 };
+    let mut color =
+        base * diffuse_light * (material.albedo[0] * coverage) + specular * material.albedo[1];
 
     // Reflejo: se lanza otro rayo en la direccion de rebote y se mezcla lo que encuentre
     if material.reflectivity > 0.0 {
@@ -177,7 +204,7 @@ pub fn cast_ray<O: RayIntersect>(
 
     // Transparencia: se lanza otro rayo que atraviesa la superficie doblandose. Si no puede
     // atravesarla (reflexion total interna), el rayo rebota por dentro.
-    if material.transparency > 0.0 {
+    if transparency > 0.0 {
         let direction = match refract(ray_direction, &hit.normal, material.refractive_index) {
             Some(refracted) => normalize(&refracted),
             None => normalize(&reflect(ray_direction, &hit.normal)),
@@ -185,7 +212,7 @@ pub fn cast_ray<O: RayIntersect>(
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
         let refracted = cast_ray(&origin, &direction, objects, lights, depth + 1);
 
-        color += refracted * material.transparency;
+        color += refracted * transparency;
     }
 
     color

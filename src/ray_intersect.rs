@@ -39,6 +39,32 @@ impl Material {
             refractive_index: 1.0,
         }
     }
+
+    /// Si en ese pixel de la textura no hay superficie: el hueco entre las hojas de un
+    /// arbol. El rayo sigue de largo como si no hubiera chocado. Solo aplica a materiales
+    /// opacos; en los transparentes (vidrio, agua) la opacidad cambia cuanto se ve a traves.
+    pub fn is_hole(&self, alpha: Option<f32>) -> bool {
+        self.transparency == 0.0 && alpha.is_some_and(|a| a < 0.5)
+    }
+
+    /// Cuanta luz deja pasar la superficie en un pixel de la textura con esa opacidad.
+    /// Si la textura no trae opacidad, se usa `transparency` en toda la superficie. Si la
+    /// trae, los pixeles totalmente opacos (el marco del vidrio) no dejan pasar nada y el
+    /// resto usa `transparency`.
+    pub fn transparency_at(&self, alpha: Option<f32>) -> f32 {
+        match alpha {
+            Some(a) if a >= 1.0 => 0.0,
+            _ => self.transparency,
+        }
+    }
+}
+
+/// Que cara de un bloque se golpeo, para elegir su textura. Las esferas son todo "lado".
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Face {
+    Top,
+    Side,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,6 +77,7 @@ pub struct Intersect {
     /// Coordenadas de textura del punto de impacto, de 0 a 1
     pub u: f32,
     pub v: f32,
+    pub face: Face,
 }
 
 impl Intersect {
@@ -63,7 +90,13 @@ impl Intersect {
             material,
             u,
             v,
+            face: Face::Side,
         }
+    }
+
+    /// El mismo impacto, pero sobre la cara indicada
+    pub fn on_face(self, face: Face) -> Self {
+        Intersect { face, ..self }
     }
 
     pub fn empty() -> Self {
@@ -75,6 +108,7 @@ impl Intersect {
             material: Material::new(Texture::Solid(Color::new(0, 0, 0))),
             u: 0.0,
             v: 0.0,
+            face: Face::Side,
         }
     }
 }

@@ -1,26 +1,32 @@
 //! Lectura y escritura de imagenes sin librerias externas.
 //!
-//! - Las texturas se leen en PPM binario (P6): un encabezado de texto y despues los bytes
-//!   RGB de cada pixel, sin compresion.
+//! - Las texturas se leen en PNG (las de Minecraft vienen asi) o en PPM binario (P6).
 //! - Las capturas se guardan en PNG, que se ve en GitHub y en cualquier visor. Se escribe
 //!   sin comprimir (bloques "stored" de deflate), que es valido y mucho mas simple.
 
 use std::fs;
 
-use crate::color::Color;
+use crate::inflate::zlib_decompress;
 
+/// Imagen en memoria: pixeles RGBA (el ultimo es la opacidad, 255 = opaco) fila por fila
+/// de arriba hacia abajo
 pub struct Image {
     pub width: usize,
     pub height: usize,
-    pub pixels: Vec<Color>,
+    pub pixels: Vec<[u8; 4]>,
 }
 
-/// Lee un archivo PPM binario (P6) con 255 como valor maximo por canal
-pub fn load_ppm(path: &str) -> Result<Image, String> {
+/// Lee una imagen PNG o PPM, segun la extension del archivo
+pub fn load_image(path: &str) -> Result<Image, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    parse_ppm(&bytes)
+    if path.ends_with(".png") {
+        decode_png(&bytes)
+    } else {
+        parse_ppm(&bytes)
+    }
 }
 
+/// PPM binario (P6) con 255 como valor maximo por canal
 fn parse_ppm(bytes: &[u8]) -> Result<Image, String> {
     // El encabezado son 4 palabras separadas por espacios ("P6", ancho, alto, maximo);
     // lo que va de un '#' al final de la linea es un comentario
@@ -65,10 +71,213 @@ fn parse_ppm(bytes: &[u8]) -> Result<Image, String> {
     let pixels = data
         .chunks_exact(3)
         .take(width * height)
-        .map(|p| Color::new(p[0], p[1], p[2]))
+        .map(|p| [p[0], p[1], p[2], 255])
         .collect();
 
     Ok(Image { width, height, pixels })
+}
+
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// PNG sin entrelazar, con cualquier tipo de color y 1, 2, 4, 8 o 16 bits por canal.
+///
+/// Un PNG es una firma y una lista de bloques ("chunks"): IHDR trae el tamano y el formato,
+/// PLTE la paleta, tRNS la transparencia de las imagenes sin canal alfa, e IDAT los pixeles
+/// comprimidos con zlib (pueden venir partidos en varios IDAT).
+fn decode_png(bytes: &[u8]) -> Result<Image, String> {
+    if !bytes.starts_with(PNG_SIGNATURE) {
+        return Err("no es un PNG".into());
+    }
+
+    let mut header = None;
+    let mut palette: &[u8] = &[];
+    let mut transparency: &[u8] = &[];
+    let mut compressed = Vec::new();
+
+    let mut pos = PNG_SIGNATURE.len();
+    while pos + 8 <= bytes.len() {
+        let len = u32::from_be_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        let kind = &bytes[pos + 4..pos + 8];
+        let data = bytes.get(pos + 8..pos + 8 + len).ok_or("bloque de PNG cortado")?;
+        match kind {
+            b"IHDR" => header = Some(PngHeader::parse(data)?),
+            b"PLTE" => palette = data,
+            b"tRNS" => transparency = data,
+            b"IDAT" => compressed.extend_from_slice(data),
+            b"IEND" => break,
+            _ => {}
+        }
+        // Largo, tipo, datos y CRC
+        pos += 12 + len;
+    }
+
+    let header = header.ok_or("el PNG no tiene encabezado")?;
+    let raw = zlib_decompress(&compressed)?;
+    let samples = unfilter(&raw, &header)?;
+    header.to_rgba(&samples, palette, transparency)
+}
+
+struct PngHeader {
+    width: usize,
+    height: usize,
+    bit_depth: usize,
+    /// 0 = gris, 2 = RGB, 3 = paleta, 4 = gris + alfa, 6 = RGBA
+    color_type: u8,
+}
+
+impl PngHeader {
+    fn parse(data: &[u8]) -> Result<PngHeader, String> {
+        if data.len() < 13 {
+            return Err("encabezado de PNG cortado".into());
+        }
+        let header = PngHeader {
+            width: u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize,
+            height: u32::from_be_bytes(data[4..8].try_into().unwrap()) as usize,
+            bit_depth: data[8] as usize,
+            color_type: data[9],
+        };
+        if data[12] != 0 {
+            return Err("no se soportan PNG entrelazados".into());
+        }
+        if ![1, 2, 4, 8, 16].contains(&header.bit_depth) || header.channels() == 0 {
+            return Err("formato de PNG invalido".into());
+        }
+        Ok(header)
+    }
+
+    /// Cuantos valores tiene cada pixel
+    fn channels(&self) -> usize {
+        match self.color_type {
+            0 | 3 => 1,
+            2 => 3,
+            4 => 2,
+            6 => 4,
+            _ => 0,
+        }
+    }
+
+    /// Bytes por fila, sin contar el byte del filtro. Con menos de 8 bits por valor, varios
+    /// pixeles comparten un byte.
+    fn stride(&self) -> usize {
+        (self.width * self.channels() * self.bit_depth).div_ceil(8)
+    }
+
+    /// Distancia en bytes al mismo valor del pixel anterior (minimo 1), que usan los filtros
+    fn bytes_per_pixel(&self) -> usize {
+        (self.channels() * self.bit_depth).div_ceil(8)
+    }
+
+    /// Lee el valor numero `index` de una fila, sea del tamano que sea
+    fn sample(&self, row: &[u8], index: usize) -> u16 {
+        match self.bit_depth {
+            8 => row[index] as u16,
+            16 => u16::from_be_bytes([row[index * 2], row[index * 2 + 1]]),
+            bits => {
+                // Los valores de menos de 8 bits vienen pegados, el primero en los bits altos
+                let bit = index * bits;
+                let shift = 8 - bits - bit % 8;
+                ((row[bit / 8] >> shift) as u16) & ((1 << bits) - 1)
+            }
+        }
+    }
+
+    /// Lleva un valor de `bit_depth` bits a 0..=255
+    fn to_byte(&self, value: u16) -> u8 {
+        match self.bit_depth {
+            16 => (value >> 8) as u8,
+            bits => (value as u32 * 255 / ((1 << bits) - 1)) as u8,
+        }
+    }
+
+    fn to_rgba(&self, samples: &[u8], palette: &[u8], transparency: &[u8]) -> Result<Image, String> {
+        // Con tRNS en gris o RGB, un unico color (en su valor original) es el transparente
+        let transparent_value = |i: usize| -> Option<u16> {
+            transparency.get(i * 2..i * 2 + 2).map(|b| u16::from_be_bytes([b[0], b[1]]))
+        };
+        let channels = self.channels();
+
+        let mut pixels = Vec::with_capacity(self.width * self.height);
+        for row in samples.chunks_exact(self.stride()) {
+            for x in 0..self.width {
+                let value = |channel: usize| self.sample(row, x * channels + channel);
+                let byte = |channel: usize| self.to_byte(value(channel));
+
+                let pixel = match self.color_type {
+                    0 => {
+                        let alpha = if transparent_value(0) == Some(value(0)) { 0 } else { 255 };
+                        [byte(0), byte(0), byte(0), alpha]
+                    }
+                    2 => {
+                        let is_key = (0..3).all(|ch| transparent_value(ch) == Some(value(ch)));
+                        [byte(0), byte(1), byte(2), if is_key { 0 } else { 255 }]
+                    }
+                    3 => {
+                        let index = value(0) as usize;
+                        let rgb = palette
+                            .get(index * 3..index * 3 + 3)
+                            .ok_or("indice de paleta fuera de rango")?;
+                        let alpha = transparency.get(index).copied().unwrap_or(255);
+                        [rgb[0], rgb[1], rgb[2], alpha]
+                    }
+                    4 => [byte(0), byte(0), byte(0), byte(1)],
+                    _ => [byte(0), byte(1), byte(2), byte(3)],
+                };
+                pixels.push(pixel);
+            }
+        }
+
+        Ok(Image { width: self.width, height: self.height, pixels })
+    }
+}
+
+/// Deshace los filtros de cada fila. Antes de comprimir, el PNG guarda cada byte como la
+/// diferencia con un vecino (el de la izquierda, el de arriba, su promedio...), porque esas
+/// diferencias suelen ser chicas y se comprimen mejor.
+fn unfilter(raw: &[u8], header: &PngHeader) -> Result<Vec<u8>, String> {
+    let stride = header.stride();
+    let bpp = header.bytes_per_pixel();
+    if raw.len() < header.height * (stride + 1) {
+        return Err("el PNG tiene menos datos de los que dice su tamano".into());
+    }
+
+    let mut out = vec![0u8; header.height * stride];
+    for y in 0..header.height {
+        let filter = raw[y * (stride + 1)];
+        let line = &raw[y * (stride + 1) + 1..(y + 1) * (stride + 1)];
+        let (done, current) = out.split_at_mut(y * stride);
+        let current = &mut current[..stride];
+        let above = if y > 0 { &done[(y - 1) * stride..] } else { &[][..] };
+
+        for i in 0..stride {
+            let a = if i >= bpp { current[i - bpp] } else { 0 };
+            let b = above.get(i).copied().unwrap_or(0);
+            let c = if i >= bpp { above.get(i - bpp).copied().unwrap_or(0) } else { 0 };
+
+            let prediction = match filter {
+                0 => 0,
+                1 => a,
+                2 => b,
+                3 => ((a as u16 + b as u16) / 2) as u8,
+                4 => paeth(a, b, c),
+                _ => return Err(format!("filtro de PNG desconocido: {filter}")),
+            };
+            current[i] = line[i].wrapping_add(prediction);
+        }
+    }
+    Ok(out)
+}
+
+/// Elige el vecino (izquierda, arriba o arriba-izquierda) mas cercano a a + b - c
+fn paeth(a: u8, b: u8, c: u8) -> u8 {
+    let p = a as i16 + b as i16 - c as i16;
+    let (pa, pb, pc) = ((p - a as i16).abs(), (p - b as i16).abs(), (p - c as i16).abs());
+    if pa <= pb && pa <= pc {
+        a
+    } else if pb <= pc {
+        b
+    } else {
+        c
+    }
 }
 
 /// Guarda pixeles en formato 0xRRGGBB (el del framebuffer) como PNG
@@ -164,8 +373,7 @@ mod tests {
 
         let imagen = parse_ppm(&archivo).unwrap();
         assert_eq!((imagen.width, imagen.height), (2, 1));
-        assert_eq!(imagen.pixels[0].to_hex(), 0xFF0000);
-        assert_eq!(imagen.pixels[1].to_hex(), 0x0000FF);
+        assert_eq!(imagen.pixels, vec![[255, 0, 0, 255], [0, 0, 255, 255]]);
     }
 
     #[test]
@@ -189,5 +397,71 @@ mod tests {
         assert_eq!(&png[12..16], b"IHDR");
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 2);
         assert!(png.ends_with(&[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82]));
+    }
+
+    #[test]
+    fn lo_que_se_guarda_en_png_se_lee_igual() {
+        let original = [0xFF0000, 0x00FF00, 0x0000FF, 0x123456, 0xFFFFFF, 0x000000];
+        let imagen = decode_png(&encode_png(3, 2, &original)).unwrap();
+
+        assert_eq!((imagen.width, imagen.height), (3, 2));
+        let leido: Vec<u32> = imagen
+            .pixels
+            .iter()
+            .map(|p| (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32)
+            .collect();
+        assert_eq!(leido, original);
+    }
+
+    #[test]
+    fn el_filtro_paeth_elige_el_vecino_mas_parecido() {
+        assert_eq!(paeth(10, 20, 10), 20);
+        assert_eq!(paeth(20, 10, 10), 20);
+        assert_eq!(paeth(10, 10, 30), 10);
+    }
+
+    #[test]
+    fn las_texturas_de_minecraft_se_leen_igual_que_con_pil() {
+        // Sumas de control calculadas con la libreria PIL de Python sobre los mismos
+        // archivos: la suma de todos los bytes RGBA y una suma ponderada por posicion, que
+        // cambia si un solo pixel sale distinto o en otro lugar. Cubren PNG con paleta de 4
+        // y 8 bits, gris, RGB y RGBA, con y sin transparencia.
+        let esperado = [
+            ("bricks", 150165, 61716026),
+            ("cobblestone", 163249, 66882931),
+            ("diamond_block", 209516, 82364626),
+            ("dirt", 141452, 59335235),
+            ("glass", 129490, 39526584),
+            ("glowstone", 164416, 64269563),
+            ("gold_block", 197469, 68857484),
+            ("grass_block_side", 141957, 59306065),
+            ("grass_block_top", 178509, 71187102),
+            ("iron_block", 234274, 85180302),
+            ("lava_still", 2946668, 364034723),
+            ("mossy_cobblestone", 148108, 62587658),
+            ("oak_leaves", 118271, 47432280),
+            ("oak_log", 127976, 56269579),
+            ("oak_log_top", 153881, 62126321),
+            ("oak_planks", 160423, 63086451),
+            ("obsidian", 78158, 45456701),
+            ("sand", 216186, 78972055),
+            ("sea_lantern", 1046069, 981060995),
+            ("stone", 161700, 66822126),
+            ("stone_bricks", 159163, 65265800),
+            ("water_still", 5826636, 849043403),
+        ];
+
+        for (nombre, suma, ponderada) in esperado {
+            let ruta = format!("{}/assets/textures/{nombre}.png", env!("CARGO_MANIFEST_DIR"));
+            let imagen = load_image(&ruta).unwrap_or_else(|e| panic!("{nombre}: {e}"));
+
+            let bytes = imagen.pixels.iter().flatten().map(|&b| b as u64);
+            let pesos = imagen.pixels.iter().enumerate().map(|(i, p)| {
+                let valor = p[0] as u64 + 2 * p[1] as u64 + 3 * p[2] as u64 + 5 * p[3] as u64;
+                (i as u64 + 1) * valor
+            });
+            assert_eq!(bytes.sum::<u64>(), suma, "{nombre}");
+            assert_eq!(pesos.sum::<u64>() % 1_000_000_007, ponderada, "{nombre}");
+        }
     }
 }
