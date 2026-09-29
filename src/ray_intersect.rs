@@ -9,7 +9,7 @@ use crate::texture::Texture;
 /// Los cuatro canales de luz se suman: color = difuso * albedo[0] + especular * albedo[1]
 /// + reflejo * reflectivity + refraccion * transparency. Para que no se sobre-ilumine, la
 /// suma de albedo[0], reflectivity y transparency deberia quedar cerca de 1 o menos.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
     /// De donde sale el color base (color solido, ajedrez o imagen)
     pub texture: Texture,

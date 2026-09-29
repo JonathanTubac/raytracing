@@ -45,13 +45,26 @@ impl Camera {
         self.distance = (self.distance * factor).clamp(DISTANCIA_MIN, DISTANCIA_MAX);
     }
 
-    /// Convierte un vector del espacio de la camara (mirando hacia -Z) al espacio del mundo
-    pub fn basis_change(&self, vector: &Vec3) -> Vec3 {
+    /// Los ejes de la camara en el mundo. Se calculan una vez por cuadro y no una vez por
+    /// pixel, porque dependen de senos, cosenos y productos cruz que no cambian entre pixeles.
+    pub fn basis(&self) -> CameraBasis {
         let forward = normalize(&(self.center - self.eye()));
         let right = normalize(&cross(&forward, &Vec3::new(0.0, 1.0, 0.0)));
         let up = cross(&right, &forward);
+        CameraBasis { right, up, forward }
+    }
+}
 
-        vector.x * right + vector.y * up - vector.z * forward
+pub struct CameraBasis {
+    right: Vec3,
+    up: Vec3,
+    forward: Vec3,
+}
+
+impl CameraBasis {
+    /// Convierte un vector del espacio de la camara (mirando hacia -Z) al espacio del mundo
+    pub fn to_world(&self, vector: &Vec3) -> Vec3 {
+        vector.x * self.right + vector.y * self.up - vector.z * self.forward
     }
 }
 
@@ -69,9 +82,14 @@ mod tests {
 
         assert!(cerca(&camera.eye(), &Vec3::zeros()));
         // Sin rotar, la base de la camara es la del mundo
-        assert!(cerca(&camera.basis_change(&Vec3::new(0.0, 0.0, -1.0)), &Vec3::new(0.0, 0.0, -1.0)));
-        assert!(cerca(&camera.basis_change(&Vec3::new(1.0, 0.0, 0.0)), &Vec3::new(1.0, 0.0, 0.0)));
-        assert!(cerca(&camera.basis_change(&Vec3::new(0.0, 1.0, 0.0)), &Vec3::new(0.0, 1.0, 0.0)));
+        let base = camera.basis();
+        for eje in [
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ] {
+            assert!(cerca(&base.to_world(&eje), &eje));
+        }
     }
 
     #[test]
@@ -82,7 +100,7 @@ mod tests {
         assert!(((camera.eye() - camera.center).norm() - 5.0).abs() < 1e-4);
 
         let hacia_el_centro = normalize(&(camera.center - camera.eye()));
-        let mirando = camera.basis_change(&Vec3::new(0.0, 0.0, -1.0));
+        let mirando = camera.basis().to_world(&Vec3::new(0.0, 0.0, -1.0));
         assert!(cerca(&hacia_el_centro, &mirando));
     }
 

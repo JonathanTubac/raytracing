@@ -10,3 +10,11 @@ edition = "2024"
 # Sin esto, `cargo run` (modo debug) renderiza sin optimizar y la ventana va muy lenta
 [profile.dev]
 opt-level = 3
+
+# `cargo run --release`: la version mas rapida. LTO y una sola unidad de compilacion dejan
+# que el compilador optimice a traves de todos los modulos (por ejemplo, meter el recorrido
+# de la grilla dentro del bucle de cada pixel), a cambio de compilar mas lento
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

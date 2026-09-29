@@ -13,7 +13,7 @@ use crate::texture::{ImageTexture, Texture};
 
 /// Normales de una imagen en el espacio de la cara: `x` apunta hacia donde crece u, `y`
 /// hacia donde crece v, y `z` hacia afuera de la superficie
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct NormalImage {
     width: usize,
     height: usize,
@@ -58,7 +58,7 @@ impl NormalImage {
 
 /// Mapa normal de un material. Igual que su textura, puede ser uno para todas las caras o
 /// uno distinto arriba, a los lados y abajo.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NormalMap {
     Image(&'static NormalImage),
     Block {

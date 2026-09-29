@@ -18,6 +18,10 @@ const MAX_DEPTH: u32 = 4;
 // Separacion al lanzar rayos nuevos desde una superficie, para que no choquen con ella misma
 const BIAS: f32 = 1e-3;
 
+// Cuantas superficies puede cruzar un rayo de sombra camino a la luz (hojas, vidrio, agua)
+// antes de darla por tapada
+const MAX_SHADOW_STEPS: u32 = 16;
+
 /// Todo lo que un rayo puede encontrar: los objetos, las luces que los iluminan y el cielo
 /// que se ve cuando no choca con nada
 pub struct Scene<'a, O> {
@@ -67,6 +71,24 @@ fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
     }
 }
 
+/// El impacto mas cercano del rayo entre todos los objetos de la escena
+fn closest_hit<O: RayIntersect>(objects: &[O], origin: &Vec3, direction: &Vec3) -> Option<Intersect> {
+    // Z-buffer: guarda la distancia del impacto mas cercano visto hasta ahora en este rayo.
+    // Un objeto solo cuenta si choca mas cerca que lo que ya esta guardado, asi el
+    // resultado no depende del orden en que se agregaron los objetos.
+    let mut zbuffer = f32::INFINITY;
+    let mut closest = None;
+
+    for object in objects {
+        let intersect = object.ray_intersect(origin, direction);
+        if intersect.is_intersecting && intersect.distance < zbuffer {
+            zbuffer = intersect.distance;
+            closest = Some(intersect);
+        }
+    }
+    closest
+}
+
 /// Cuanta luz de `light` llega a `point`: 1 si no hay nada en el camino y 0 si un objeto
 /// opaco la tapa. Los objetos transparentes dejan pasar una parte, asi el vidrio y el agua
 /// dan sombras mas claras que la piedra.
@@ -77,17 +99,19 @@ fn light_visibility<O: RayIntersect>(
     objects: &[O],
 ) -> f32 {
     let to_light = light.position - point;
-    let distance = to_light.norm();
-    let direction = to_light * (1.0 / distance);
-    let origin = offset_origin(point, &direction, normal);
+    let mut remaining = to_light.norm();
+    let direction = to_light * (1.0 / remaining);
+    let mut origin = offset_origin(point, &direction, normal);
 
-    // A diferencia de un rayo normal no importa cual objeto esta mas cerca: cualquiera que
-    // este entre el punto y la luz hace sombra
+    // Se avanza de superficie en superficie hacia la luz. Cada una que cruza el rayo deja
+    // pasar una parte de la luz; la primera opaca la tapa del todo.
     let mut visibility = 1.0;
-    for object in objects {
-        let hit = object.ray_intersect(&origin, &direction);
-        if !hit.is_intersecting || hit.distance >= distance {
-            continue;
+    for _ in 0..MAX_SHADOW_STEPS {
+        let Some(hit) = closest_hit(objects, &origin, &direction) else {
+            return visibility;
+        };
+        if hit.distance >= remaining {
+            return visibility;
         }
 
         // Cuanta luz deja pasar depende del pixel de la textura donde cruza el rayo: por
@@ -95,12 +119,16 @@ fn light_visibility<O: RayIntersect>(
         let (_, alpha) = hit.material.texture.sample(hit.u, hit.v, hit.face);
         if !hit.material.is_hole(alpha) {
             visibility *= hit.material.transparency_at(alpha);
+            if visibility <= 0.0 {
+                return 0.0;
+            }
         }
-        if visibility <= 0.0 {
-            return 0.0;
-        }
+
+        remaining -= hit.distance;
+        origin = offset_origin(&hit.point, &direction, &hit.normal);
     }
-    visibility
+    // Demasiadas superficies en el camino: se da la luz por tapada
+    0.0
 }
 
 pub fn cast_ray<O: RayIntersect>(
@@ -113,22 +141,8 @@ pub fn cast_ray<O: RayIntersect>(
         return scene.skybox.sample(ray_direction);
     }
 
-    // Z-buffer: guarda la distancia del impacto mas cercano visto hasta ahora en este rayo.
-    // Un objeto solo se pinta si choca mas cerca que lo que ya esta guardado, asi el
-    // resultado no depende del orden en que se agregaron las esferas.
-    let mut zbuffer = f32::INFINITY;
-    let mut closest: Option<Intersect> = None;
-
-    for object in scene.objects {
-        let intersect = object.ray_intersect(ray_origin, ray_direction);
-        if intersect.is_intersecting && intersect.distance < zbuffer {
-            zbuffer = intersect.distance;
-            closest = Some(intersect);
-        }
-    }
-
     // Si no choca con nada se ve el cielo en esa direccion
-    let Some(mut hit) = closest else {
+    let Some(mut hit) = closest_hit(scene.objects, ray_origin, ray_direction) else {
         return scene.skybox.sample(ray_direction);
     };
     let material = hit.material;
@@ -225,45 +239,68 @@ pub fn cast_ray<O: RayIntersect>(
     color
 }
 
-pub fn render<O: RayIntersect>(framebuffer: &mut Framebuffer, scene: &Scene<O>, camera: &Camera) {
+/// Dibuja la escena vista desde la camara.
+///
+/// `pixel_size` permite dibujar mas rapido a menor resolucion: se lanza un solo rayo por
+/// cada cuadrado de `pixel_size` x `pixel_size` pixeles y se pinta todo el cuadrado de ese
+/// color. Con 1 se lanza un rayo por pixel; con 2 hay 4 veces menos rayos.
+pub fn render<O: RayIntersect>(
+    framebuffer: &mut Framebuffer,
+    scene: &Scene<O>,
+    camera: &Camera,
+    pixel_size: usize,
+) {
+    let pixel_size = pixel_size.max(1);
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
-    let eye = camera.eye();
     let pixels_wide = framebuffer.width;
 
+    // Lo que es igual para todos los pixeles se calcula una sola vez por cuadro
+    let eye = camera.eye();
+    let basis = camera.basis();
+
     // Cada pixel es independiente de los demas, asi que se reparten entre todos los nucleos
-    // del procesador. El trabajo se reparte por filas: cada hilo toma la siguiente fila
-    // libre cuando termina la suya. Asi, si un hilo cae en filas caras (vidrio, espejos)
-    // los demas siguen avanzando en vez de quedarse esperando a que termine.
-    let rows = Mutex::new(framebuffer.buffer_mut().chunks_mut(pixels_wide).enumerate());
+    // del procesador. El trabajo se reparte por franjas de filas: cada hilo toma la
+    // siguiente franja libre cuando termina la suya. Asi, si un hilo cae en franjas caras
+    // (vidrio, agua) los demas siguen avanzando en vez de quedarse esperando a que termine.
+    let bands = framebuffer.buffer_mut().chunks_mut(pixels_wide * pixel_size).enumerate();
+    let bands = Mutex::new(bands);
     let threads = thread::available_parallelism().map_or(4, |n| n.get());
 
     thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
                 loop {
-                    // El candado solo se toma para sacar la siguiente fila, no para pintarla
-                    let Some((y, row)) = rows.lock().unwrap().next() else {
+                    // El candado solo se toma para sacar la siguiente franja, no para pintarla
+                    let Some((band, pixels)) = bands.lock().unwrap().next() else {
                         break;
                     };
+                    let rows = pixels.len() / pixels_wide;
 
-                    for (x, pixel) in row.iter_mut().enumerate() {
-                        // Mapea el pixel a espacio de pantalla [-1, 1]
-                        let screen_x = (2.0 * x as f32) / width - 1.0;
-                        let screen_y = -(2.0 * y as f32) / height + 1.0;
+                    for x0 in (0..pixels_wide).step_by(pixel_size) {
+                        // Se lanza el rayo por el centro del cuadrado
+                        let x = x0 as f32 + pixel_size as f32 * 0.5;
+                        let y = (band * pixel_size) as f32 + rows as f32 * 0.5;
 
-                        // Ajuste por aspect ratio
-                        let screen_x = screen_x * aspect_ratio;
+                        // Mapea el pixel a espacio de pantalla [-1, 1], con el ajuste por
+                        // aspect ratio
+                        let screen_x = ((2.0 * x) / width - 1.0) * aspect_ratio;
+                        let screen_y = -(2.0 * y) / height + 1.0;
 
                         // Direccion del rayo en el espacio de la camara, y luego en el del mundo
                         let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
-                        let ray_direction = camera.basis_change(&ray_direction);
+                        let ray_direction = basis.to_world(&ray_direction);
 
-                        // Se lanza el rayo desde la camara. El color que devuelve puede
-                        // pasar de 1.0, asi que se comprime al rango de la pantalla.
+                        // El color que devuelve el rayo puede pasar de 1.0, asi que se
+                        // comprime al rango de la pantalla
                         let color = cast_ray(&eye, &ray_direction, scene, 0);
-                        *pixel = color.tone_map().to_hex();
+                        let hex = color.tone_map().to_hex();
+
+                        let x1 = (x0 + pixel_size).min(pixels_wide);
+                        for row in pixels.chunks_mut(pixels_wide) {
+                            row[x0..x1].fill(hex);
+                        }
                     }
                 }
             });

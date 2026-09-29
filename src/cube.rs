@@ -1,14 +1,22 @@
 use crate::math::Vec3;
 
-use crate::ray_intersect::{Face, Intersect, Material, RayIntersect};
+#[cfg(test)]
+use crate::ray_intersect::RayIntersect;
+use crate::ray_intersect::{Face, Intersect, Material};
 
-/// Cubo (o caja) alineado a los ejes, definido por su esquina minima y maxima
+/// Cubo (o caja) alineado a los ejes, definido por su esquina minima y maxima.
+///
+/// El diorama no usa cubos sueltos sino la grilla de voxeles (voxel.rs), que es mucho mas
+/// rapida. El cubo queda como referencia: las pruebas comparan la grilla contra probar
+/// cubo por cubo, y las del render lo usan para armar escenas chicas.
+#[cfg(test)]
 pub struct Cube {
     pub min: Vec3,
     pub max: Vec3,
     pub material: Material,
 }
 
+#[cfg(test)]
 impl Cube {
     /// Cubo de lado `size` centrado en `center`
     pub fn new(center: Vec3, size: f32, material: Material) -> Self {
@@ -19,43 +27,56 @@ impl Cube {
             material,
         }
     }
+}
 
-    /// Normal hacia afuera de la cara perpendicular al eje `axis` (0 = x, 1 = y, 2 = z).
-    /// `positive` indica si es la cara del lado `max` de ese eje.
-    fn face_normal(axis: usize, positive: bool) -> Vec3 {
-        let mut normal = Vec3::zeros();
-        normal[axis] = if positive { 1.0 } else { -1.0 };
-        normal
-    }
+/// Impacto sobre una cara de un bloque: la perpendicular al eje `axis` (0 = x, 1 = y,
+/// 2 = z), del lado maximo de ese eje si `positive`. `local` es el punto de impacto dentro
+/// del bloque, de 0 a 1 en cada eje. Lo usan los cubos sueltos y la grilla de voxeles.
+pub fn face_hit(
+    point: Vec3,
+    distance: f32,
+    axis: usize,
+    positive: bool,
+    local: &Vec3,
+    material: Material,
+) -> Intersect {
+    let mut normal = Vec3::zeros();
+    normal[axis] = if positive { 1.0 } else { -1.0 };
 
-    /// Coordenadas de textura del punto sobre la cara con esa normal, y las direcciones en
-    /// el mundo hacia donde crecen u y v. Cada cara recibe la textura completa, vista desde
-    /// afuera y derecha: v = 0 arriba y u = 0 a la izquierda.
-    fn face_uv(&self, point: &Vec3, normal: &Vec3) -> (f32, f32, Vec3, Vec3) {
-        // Posicion del punto dentro del cubo, de 0 a 1 en cada eje
-        let size = self.max - self.min;
-        let p = (point - self.min).component_div(&size);
+    let (u, v, tangent, bitangent) = face_uv(local, &normal);
+    let face = match (axis, positive) {
+        (1, true) => Face::Top,
+        (1, false) => Face::Bottom,
+        _ => Face::Side,
+    };
 
-        let x = Vec3::new(1.0, 0.0, 0.0);
-        let y = Vec3::new(0.0, 1.0, 0.0);
-        let z = Vec3::new(0.0, 0.0, 1.0);
+    Intersect::new(point, normal, distance, material, u, v).on_face(face, tangent, bitangent)
+}
 
-        if normal.x > 0.5 {
-            (1.0 - p.z, 1.0 - p.y, -z, -y)
-        } else if normal.x < -0.5 {
-            (p.z, 1.0 - p.y, z, -y)
-        } else if normal.z > 0.5 {
-            (p.x, 1.0 - p.y, x, -y)
-        } else if normal.z < -0.5 {
-            (1.0 - p.x, 1.0 - p.y, -x, -y)
-        } else if normal.y > 0.5 {
-            (p.x, p.z, x, z)
-        } else {
-            (p.x, 1.0 - p.z, x, -z)
-        }
+/// Coordenadas de textura del punto `p` (de 0 a 1 dentro del bloque) sobre la cara con esa
+/// normal, y las direcciones en el mundo hacia donde crecen u y v. Cada cara recibe la
+/// textura completa, vista desde afuera y derecha: v = 0 arriba y u = 0 a la izquierda.
+fn face_uv(p: &Vec3, normal: &Vec3) -> (f32, f32, Vec3, Vec3) {
+    let x = Vec3::new(1.0, 0.0, 0.0);
+    let y = Vec3::new(0.0, 1.0, 0.0);
+    let z = Vec3::new(0.0, 0.0, 1.0);
+
+    if normal.x > 0.5 {
+        (1.0 - p.z, 1.0 - p.y, -z, -y)
+    } else if normal.x < -0.5 {
+        (p.z, 1.0 - p.y, z, -y)
+    } else if normal.z > 0.5 {
+        (p.x, 1.0 - p.y, x, -y)
+    } else if normal.z < -0.5 {
+        (1.0 - p.x, 1.0 - p.y, -x, -y)
+    } else if normal.y > 0.5 {
+        (p.x, p.z, x, z)
+    } else {
+        (p.x, 1.0 - p.z, x, -z)
     }
 }
 
+#[cfg(test)]
 impl RayIntersect for Cube {
     /// Metodo de los "slabs": el cubo es la interseccion de tres franjas, una por eje.
     /// El rayo esta dentro del cubo entre el ultimo momento en que entra a una franja
@@ -115,16 +136,10 @@ impl RayIntersect for Cube {
         };
 
         let point = ray_origin + ray_direction * distance;
-        let normal = Cube::face_normal(axis, positive);
-        let (u, v, tangent, bitangent) = self.face_uv(&point, &normal);
-        let face = match (axis, positive) {
-            (1, true) => Face::Top,
-            (1, false) => Face::Bottom,
-            _ => Face::Side,
-        };
+        // Posicion del punto dentro del cubo, de 0 a 1 en cada eje
+        let local = (point - self.min).component_div(&(self.max - self.min));
 
-        Intersect::new(point, normal, distance, self.material, u, v)
-            .on_face(face, tangent, bitangent)
+        face_hit(point, distance, axis, positive, &local, self.material)
     }
 }
 

@@ -1,21 +1,21 @@
 use crate::blocks::Blocks;
 use crate::camera::Camera;
 use crate::color::Color;
-use crate::cube::Cube;
 use crate::light::Light;
 use crate::math::Vec3;
-use crate::ray_intersect::{Material, RayIntersect};
+use crate::ray_intersect::Material;
 use crate::skybox::Skybox;
+use crate::voxel::VoxelWorld;
 
-/// Bloque de lado 1 en la posicion entera (x, y, z) de la grilla
-fn bloque(x: i32, y: i32, z: i32, material: Material) -> Box<dyn RayIntersect> {
-    Box::new(Cube::new(Vec3::new(x as f32, y as f32, z as f32), 1.0, material))
+/// Bloque de lado 1 con centro en la posicion entera (x, y, z)
+fn bloque(x: i32, y: i32, z: i32, material: Material) -> ([i32; 3], Material) {
+    ([x, y, z], material)
 }
 
 /// Vitrina de prueba con los bloques de Minecraft: un piso de pasto con una poza de agua y
 /// una fila de cada bloque encima. Esta frente a la camara inicial, que mira hacia -Z, por
 /// eso los objetos tienen z negativo.
-pub fn objetos() -> Vec<Box<dyn RayIntersect>> {
+pub fn objetos() -> VoxelWorld {
     let b = Blocks::load();
     let mut objects = Vec::new();
 
@@ -51,7 +51,7 @@ pub fn objetos() -> Vec<Box<dyn RayIntersect>> {
     objects.push(bloque(0, -1, -4, b.glass));
     objects.push(bloque(-1, -1, -3, b.glowstone));
 
-    objects
+    VoxelWorld::new(&objects)
 }
 
 // Centro de la escena, alrededor del cual orbita la camara

@@ -3,7 +3,7 @@ use crate::image_io::load_image;
 use crate::ray_intersect::Face;
 
 /// Imagen cargada en memoria para usarla como textura
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ImageTexture {
     width: usize,
     height: usize,
@@ -90,7 +90,7 @@ impl ImageTexture {
 }
 
 /// De donde sale el color base de un material. `u` y `v` van de 0 a 1 sobre la superficie.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Texture {
     /// Un solo color en toda la superficie
     Solid(Color),
