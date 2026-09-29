@@ -1,12 +1,13 @@
 use crate::math::{cross, normalize, Vec3};
 
 const DISTANCIA_MIN: f32 = 1.0;
-const DISTANCIA_MAX: f32 = 30.0;
+const DISTANCIA_MAX: f32 = 60.0;
 // Limite del angulo vertical para no llegar a mirar justo desde arriba/abajo,
 // donde la direccion "arriba" de la camara se vuelve indefinida
 const PITCH_MAX: f32 = 1.5;
 
 /// Camara orbital: siempre mira a `center` y se mueve sobre una esfera a su alrededor.
+#[derive(Clone, Copy)]
 pub struct Camera {
     pub center: Vec3,
     pub distance: f32,

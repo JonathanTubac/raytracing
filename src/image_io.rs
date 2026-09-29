@@ -189,7 +189,12 @@ impl PngHeader {
         }
     }
 
-    fn to_rgba(&self, samples: &[u8], palette: &[u8], transparency: &[u8]) -> Result<Image, String> {
+    fn to_rgba(
+        &self,
+        samples: &[u8],
+        palette: &[u8],
+        transparency: &[u8],
+    ) -> Result<Image, String> {
         // Con tRNS en gris o RGB, un unico color (en su valor original) es el transparente
         let transparent_value = |i: usize| -> Option<u16> {
             transparency.get(i * 2..i * 2 + 2).map(|b| u16::from_be_bytes([b[0], b[1]]))

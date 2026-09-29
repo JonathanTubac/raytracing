@@ -246,7 +246,8 @@ fn huffman_block(
                 if i >= LENGTH_BASE.len() {
                     return Err("simbolo de largo invalido".into());
                 }
-                let length = LENGTH_BASE[i] as usize + reader.bits(LENGTH_EXTRA[i] as u32)? as usize;
+                let extra = reader.bits(LENGTH_EXTRA[i] as u32)? as usize;
+                let length = LENGTH_BASE[i] as usize + extra;
 
                 let d = distances.decode(reader)? as usize;
                 if d >= DIST_BASE.len() {

@@ -155,6 +155,9 @@ pub enum Key {
     W = 0x57,
     S = 0x53,
     N = 0x4E,
+    P = 0x50,
+    R = 0x52,
+    T = 0x54,
     Escape = 0x1B,
 }
 

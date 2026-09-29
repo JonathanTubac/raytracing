@@ -18,15 +18,48 @@ pub struct NormalImage {
     width: usize,
     height: usize,
     normals: Vec<Vec3>,
+    /// Si al leer se mezclan los pixeles vecinos (ondas suaves, como el agua) o se usa el
+    /// pixel mas cercano (relieve de pixeles, como la piedra)
+    smooth: bool,
 }
 
 impl NormalImage {
     /// Mapa normal a partir del brillo de la imagen. `strength` es cuanto relieve tiene:
     /// 0 deja la cara plana y valores mas altos exageran las pendientes.
     pub fn from_height(image: &ImageTexture, strength: f32) -> &'static NormalImage {
+        NormalImage::build(image, strength, 0)
+    }
+
+    /// Como `from_height`, pero con la altura desenfocada (promediando los pixeles hasta
+    /// `blur` de distancia) y leyendo el mapa suavizado. Sirve para superficies como el
+    /// agua: el detalle pixel a pixel de su textura daria un ruido que, al reflejar y
+    /// refractar, se ve como un mosaico; desenfocado quedan ondas amplias y suaves.
+    pub fn from_height_smooth(
+        image: &ImageTexture,
+        strength: f32,
+        blur: usize,
+    ) -> &'static NormalImage {
+        NormalImage::build(image, strength, blur)
+    }
+
+    fn build(image: &ImageTexture, strength: f32, blur: usize) -> &'static NormalImage {
         let (width, height) = (image.width(), image.height());
+
+        // Altura de cada pixel (su brillo), desenfocada si hace falta. Las coordenadas dan
+        // la vuelta en los bordes porque las texturas se repiten sin costura.
+        let mut heights: Vec<f32> = (0..width * height)
+            .map(|i| image.luminance((i % width) as isize, (i / width) as isize))
+            .collect();
+        if blur > 0 {
+            // Dos pasadas de promedio dan una curva mas redonda que una sola
+            for _ in 0..2 {
+                heights = box_blur(&heights, width, height, blur);
+            }
+        }
         let h = |x: usize, y: usize, dx: isize, dy: isize| {
-            image.luminance(x as isize + dx, y as isize + dy)
+            let x = (x as isize + dx).rem_euclid(width as isize) as usize;
+            let y = (y as isize + dy).rem_euclid(height as isize) as usize;
+            heights[y * width + x]
         };
 
         let mut normals = Vec::with_capacity(width * height);
@@ -44,16 +77,62 @@ impl NormalImage {
             }
         }
 
-        Box::leak(Box::new(NormalImage { width, height, normals }))
+        Box::leak(Box::new(NormalImage {
+            width,
+            height,
+            normals,
+            smooth: blur > 0,
+        }))
     }
 
-    /// Normal del pixel mas cercano, igual que la textura, para que el relieve siga a los
-    /// pixeles de Minecraft
+    /// Normal en el punto (u, v). En un mapa normal comun es la del pixel mas cercano,
+    /// igual que la textura, para que el relieve siga a los pixeles de Minecraft. En uno
+    /// suave se mezclan los 4 pixeles mas cercanos, para que las ondas no se vean en
+    /// escalones.
     fn sample(&self, u: f32, v: f32) -> Vec3 {
-        let x = (u.rem_euclid(1.0) * self.width as f32) as usize;
-        let y = (v.clamp(0.0, 1.0) * self.height as f32) as usize;
-        self.normals[y.min(self.height - 1) * self.width + x.min(self.width - 1)]
+        let (w, h) = (self.width, self.height);
+        if !self.smooth {
+            let x = (u.rem_euclid(1.0) * w as f32) as usize;
+            let y = (v.clamp(0.0, 1.0) * h as f32) as usize;
+            return self.normals[y.min(h - 1) * w + x.min(w - 1)];
+        }
+
+        // Posicion en pixeles contando desde el centro del primero; da la vuelta en ambos
+        // ejes como la textura
+        let x = u.rem_euclid(1.0) * w as f32 - 0.5;
+        let y = v.rem_euclid(1.0) * h as f32 - 0.5;
+        let (x0, y0) = (x.floor(), y.floor());
+        let (tx, ty) = (x - x0, y - y0);
+        let at = |px: f32, py: f32| {
+            let px = (px as isize).rem_euclid(w as isize) as usize;
+            let py = (py as isize).rem_euclid(h as isize) as usize;
+            self.normals[py * w + px]
+        };
+        let top = at(x0, y0) * (1.0 - tx) + at(x0 + 1.0, y0) * tx;
+        let bottom = at(x0, y0 + 1.0) * (1.0 - tx) + at(x0 + 1.0, y0 + 1.0) * tx;
+        normalize(&(top * (1.0 - ty) + bottom * ty))
     }
+}
+
+/// Promedio de cada pixel con sus vecinos hasta `radius` de distancia (un cuadrado de
+/// 2 * radius + 1 de lado), dando la vuelta en los bordes
+fn box_blur(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
+    let r = radius as isize;
+    let count = ((2 * r + 1) * (2 * r + 1)) as f32;
+    (0..width * height)
+        .map(|i| {
+            let (x, y) = ((i % width) as isize, (i / width) as isize);
+            let mut sum = 0.0;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let px = (x + dx).rem_euclid(width as isize) as usize;
+                    let py = (y + dy).rem_euclid(height as isize) as usize;
+                    sum += values[py * width + px];
+                }
+            }
+            sum / count
+        })
+        .collect()
 }
 
 /// Mapa normal de un material. Igual que su textura, puede ser uno para todas las caras o
@@ -81,6 +160,22 @@ impl NormalMap {
                 side: NormalImage::from_height(side, strength),
                 bottom: NormalImage::from_height(bottom, strength),
             }),
+            _ => None,
+        }
+    }
+
+    /// Mapa normal de ondas suaves para una superficie de una sola imagen, como el agua
+    /// (ver `NormalImage::from_height_smooth`)
+    pub fn smooth_from_texture(
+        texture: &Texture,
+        strength: f32,
+        blur: usize,
+    ) -> Option<NormalMap> {
+        match texture {
+            Texture::Image(image) => {
+                let smooth = NormalImage::from_height_smooth(image, strength, blur);
+                Some(NormalMap::Image(smooth))
+            }
             _ => None,
         }
     }
@@ -154,6 +249,27 @@ mod tests {
         let suave = NormalImage::from_height(rampa, 0.5).normals[5];
         let fuerte = NormalImage::from_height(rampa, 4.0).normals[5];
         assert!(fuerte.z < suave.z);
+    }
+
+    #[test]
+    fn el_mapa_suave_cambia_de_a_poco_entre_pixeles_vecinos() {
+        // Ruido irregular pixel a pixel, como el de la textura del agua
+        let ruido = imagen(8, |x, y| ((x * 7 + y * 13 + x * y) % 5 * 60) as u8);
+        let comun = NormalImage::from_height(ruido, 1.0);
+        let suave = NormalImage::from_height_smooth(ruido, 1.0, 2);
+
+        // Cuanto cambia la normal al moverse un poquito dentro de la cara
+        let salto = |mapa: &NormalImage| {
+            (0..64)
+                .map(|i| {
+                    let u = i as f32 / 64.0;
+                    (mapa.sample(u, 0.3) - mapa.sample(u + 1.0 / 64.0, 0.3)).norm()
+                })
+                .fold(0.0, f32::max)
+        };
+        assert!(salto(suave) < salto(comun) * 0.5 + 1e-6);
+        // Y el suave no tiene saltos bruscos
+        assert!(salto(suave) < 0.2, "{}", salto(suave));
     }
 
     #[test]

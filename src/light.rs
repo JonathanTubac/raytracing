@@ -5,16 +5,18 @@ use crate::math::Vec3;
 /// (1.0 = normal).
 ///
 /// Hay dos tipos: el sol, que no se debilita con la distancia (`range` infinito), y las
-/// luces de los bloques emisivos, que viven dentro de un bloque y solo alumbran hasta
-/// `range` bloques de distancia.
+/// luces de los bloques emisivos, que salen de uno o varios bloques vecinos y solo alumbran
+/// hasta `range` bloques de distancia.
+#[derive(Clone, Copy)]
 pub struct Light {
     pub position: Vec3,
     pub color: Color,
     pub intensity: f32,
     /// Hasta donde llega la luz. Mas alla no aporta nada.
     pub range: f32,
-    /// Mitad del lado del bloque que emite la luz (0 si no sale de un bloque)
-    pub radius: f32,
+    /// Caja (esquina minima y maxima) que ocupan los bloques que emiten la luz, o `None`
+    /// si no sale de bloques, como el sol
+    pub bounds: Option<(Vec3, Vec3)>,
 }
 
 // Que tan rapido se debilita la luz de un bloque: a distancia d llega
@@ -30,19 +32,40 @@ impl Light {
             color,
             intensity,
             range: f32::INFINITY,
-            radius: 0.0,
+            bounds: None,
         }
     }
 
     /// Luz que sale de un bloque emisivo de lado 1 con centro en `center`, y alumbra hasta
     /// `range` bloques de distancia
+    #[cfg(test)]
     pub fn from_block(center: Vec3, color: Color, intensity: f32, range: f32) -> Self {
+        Light::from_blocks(&[center], color, intensity, range)
+    }
+
+    /// Una sola luz para un grupo de bloques emisivos vecinos (varios bloques de una poza
+    /// de lava, por ejemplo), cada uno con intensidad `intensity`. La luz queda en el
+    /// centro del grupo y con la suma de sus intensidades: vista desde lejos es igual a
+    /// tener una luz por bloque, pero cuesta como una sola.
+    pub fn from_blocks(centers: &[Vec3], color: Color, intensity: f32, range: f32) -> Self {
+        let half = Vec3::new(0.5, 0.5, 0.5);
+        let mut min = centers[0] - half;
+        let mut max = centers[0] + half;
+        let mut sum = Vec3::zeros();
+        for center in centers {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(center[axis] - 0.5);
+                max[axis] = max[axis].max(center[axis] + 0.5);
+            }
+            sum += *center;
+        }
+
         Light {
-            position: center,
+            position: sum * (1.0 / centers.len() as f32),
             color,
-            intensity,
+            intensity: intensity * centers.len() as f32,
             range,
-            radius: 0.5,
+            bounds: Some((min, max)),
         }
     }
 
@@ -62,12 +85,13 @@ impl Light {
         window / (1.0 + CAIDA * distance * distance)
     }
 
-    /// Si el punto esta sobre (o dentro de) el bloque que emite la luz. Un rayo de sombra
-    /// que llega ahi ya llego a la luz: el bloque no se tapa a si mismo.
+    /// Si el punto esta sobre (o dentro de) los bloques que emiten la luz. Un rayo de
+    /// sombra que llega ahi ya llego a la luz: los bloques no se tapan a si mismos.
     pub fn contains(&self, point: &Vec3) -> bool {
-        let d = point - self.position;
-        let limit = self.radius + 1e-3;
-        self.radius > 0.0 && d.x.abs() <= limit && d.y.abs() <= limit && d.z.abs() <= limit
+        let Some((min, max)) = self.bounds else {
+            return false;
+        };
+        (0..3).all(|axis| point[axis] >= min[axis] - 1e-3 && point[axis] <= max[axis] + 1e-3)
     }
 }
 
@@ -111,5 +135,23 @@ mod tests {
 
         let sol = Light::new(Vec3::zeros(), blanca(), 1.0);
         assert!(!sol.contains(&Vec3::zeros()));
+    }
+
+    #[test]
+    fn un_grupo_de_bloques_da_una_luz_en_su_centro_con_la_suma_de_intensidades() {
+        let bloques = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 1.0),
+        ];
+        let poza = Light::from_blocks(&bloques, blanca(), 0.5, 6.0);
+
+        assert!((poza.position - Vec3::new(1.0, 0.0, 0.25)).norm() < 1e-6);
+        assert!((poza.intensity - 2.0).abs() < 1e-6);
+        // Toca cualquiera de los bloques del grupo, no solo el del centro
+        assert!(poza.contains(&Vec3::new(2.5, 0.0, 0.0)));
+        assert!(poza.contains(&Vec3::new(-0.5, 0.3, 0.0)));
+        assert!(!poza.contains(&Vec3::new(3.2, 0.0, 0.0)));
     }
 }

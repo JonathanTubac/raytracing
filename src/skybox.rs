@@ -11,23 +11,74 @@ use crate::color::Color;
 use crate::math::{cross, dot, normalize, Vec3};
 use crate::texture::ImageTexture;
 
-// Cielo de dia de Minecraft en un bioma de llanura: azul arriba y mas claro en el horizonte
-const CIELO_ARRIBA: Color = Color::new(120, 167, 255);
-const CIELO_HORIZONTE: Color = Color::new(192, 216, 255);
-// Debajo del horizonte (se ve porque el diorama flota) el cielo se oscurece
-const CIELO_ABAJO: Color = Color::new(55, 80, 140);
+/// Colores del cielo a una hora del dia
+pub struct SkyStyle {
+    /// Arriba, en el horizonte y debajo del horizonte (se ve porque el diorama flota)
+    pub top: Color,
+    pub horizon: Color,
+    pub bottom: Color,
+    /// Resplandor que se suma al horizonte del lado del sol, como al atardecer
+    pub glow: Color,
+    pub clouds: Color,
+    /// Que tanto tapan las nubes lo que hay detras (0 = nada, 1 = todo)
+    pub cloud_opacity: f32,
+    /// Color por el que se multiplica la textura del sol (o de la luna)
+    pub sun: Color,
+    /// Si en el cielo esta la luna en vez del sol
+    pub moon: bool,
+    /// Que parte del cielo tiene estrellas (0 = ninguna)
+    pub stars: f32,
+}
+
+/// Cielo de dia de Minecraft en un bioma de llanura: azul arriba y mas claro en el horizonte
+pub const DIA: SkyStyle = SkyStyle {
+    top: Color::new(120, 167, 255),
+    horizon: Color::new(192, 216, 255),
+    bottom: Color::new(55, 80, 140),
+    glow: Color::black(),
+    clouds: Color::new(250, 250, 255),
+    cloud_opacity: 0.8,
+    sun: Color::rgb(1.6, 1.6, 1.6),
+    moon: false,
+    stars: 0.0,
+};
+
+/// Atardecer: azul profundo arriba, horizonte naranja que se enciende del lado del sol, y
+/// nubes rosadas
+pub const ATARDECER: SkyStyle = SkyStyle {
+    top: Color::new(52, 72, 140),
+    horizon: Color::new(235, 150, 120),
+    bottom: Color::new(40, 35, 70),
+    glow: Color::rgb(0.9, 0.35, 0.05),
+    clouds: Color::new(255, 190, 170),
+    cloud_opacity: 0.8,
+    sun: Color::rgb(2.0, 1.3, 0.7),
+    moon: false,
+    stars: 0.0,
+};
+
+/// Noche: azul casi negro, estrellas, la luna de Minecraft y nubes oscuras y ralas
+pub const NOCHE: SkyStyle = SkyStyle {
+    top: Color::new(4, 6, 18),
+    horizon: Color::new(22, 28, 55),
+    bottom: Color::new(4, 5, 14),
+    glow: Color::black(),
+    clouds: Color::new(40, 45, 65),
+    cloud_opacity: 0.45,
+    sun: Color::rgb(1.4, 1.45, 1.6),
+    moon: true,
+    stars: 0.012,
+};
 
 // Mitad del lado del sol, medido en el plano a distancia 1 de la camara (como en el juego,
 // donde el sol es un cuadrado de 30 bloques a 100 de distancia)
 const SOL_MITAD: f32 = 0.2;
-// El sol se suma al cielo; mas de 1 para que su centro brille y el tone mapping lo suavice
-const SOL_BRILLO: f32 = 1.6;
-
 // Las nubes son un plano a altura 1 sobre la camara. Cada pixel de clouds.png es un
 // cuadrado de este tamano en ese plano, y la imagen se repite en ambas direcciones.
 const NUBE_PIXEL: f32 = 0.08;
-const NUBE_OPACIDAD: f32 = 0.8;
-const NUBE_COLOR: Color = Color::new(250, 250, 255);
+
+// Rectangulo de una textura (u, v de la esquina, ancho y alto) que abarca la imagen entera
+const IMAGEN_ENTERA: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 // Pixeles de lado de cada cara del cubo
 const LADO_CARA: usize = 512;
@@ -70,16 +121,48 @@ impl Skybox {
         Skybox { size, faces }
     }
 
-    /// El cielo de dia de Minecraft con el sol en la direccion `sun_direction`
-    pub fn minecraft(sun_direction: Vec3) -> Skybox {
-        let sun = ImageTexture::load(&ruta("sun"));
+    /// El cielo de Minecraft con los colores de `style` y el sol (o la luna) en la
+    /// direccion `sun_direction`
+    pub fn minecraft(sun_direction: Vec3, style: &SkyStyle) -> Skybox {
+        // La luna sale de moon_phases.png, una grilla de 4 x 2 fases; la primera es la luna
+        // llena
+        let (body, rect) = if style.moon {
+            (ImageTexture::load(&ruta("moon_phases")), [0.0, 0.0, 0.25, 0.5])
+        } else {
+            (ImageTexture::load(&ruta("sun")), IMAGEN_ENTERA)
+        };
         let clouds = ImageTexture::load(&ruta("clouds"));
         let sun_direction = normalize(&sun_direction);
 
         Skybox::from_fn(LADO_CARA, |direction| {
-            let mut color = gradient(direction);
-            color = with_clouds(color, direction, clouds);
-            color + sun_color(direction, &sun_direction, sun)
+            let mut color = gradient(direction, &sun_direction, style);
+            color += stars(direction, style.stars);
+            color = with_clouds(color, direction, clouds, style);
+            // El sol se suma al cielo; puede pasar de 1 para que su centro brille y el tone
+            // mapping lo suavice
+            color + sun_color(direction, &sun_direction, body, rect) * style.sun
+        })
+    }
+
+    /// El "cielo" del Nether: no hay sol ni nubes, solo una neblina roja mas densa hacia el
+    /// horizonte, con motas de ceniza encendida flotando
+    pub fn nether() -> Skybox {
+        let top = Color::new(35, 6, 6);
+        let horizon = Color::new(110, 28, 18);
+        let bottom = Color::new(50, 8, 4);
+        let ash = Color::rgb(1.4, 0.55, 0.2);
+
+        Skybox::from_fn(LADO_CARA, |d| {
+            let fog = if d.y >= 0.0 {
+                Color::lerp(horizon, top, smoothstep(0.0, 0.6, d.y))
+            } else {
+                Color::lerp(horizon, bottom, smoothstep(0.0, 0.4, -d.y))
+            };
+
+            // Las motas son celdas chicas de una grilla sobre las direcciones; unas pocas,
+            // elegidas al azar, brillan
+            let cell = [d.x, d.y, d.z].map(|c| (c * 170.0).floor() as i32);
+            if speck_hash(cell) < 0.005 { ash } else { fog }
         })
     }
 
@@ -139,20 +222,41 @@ fn face_direction(face: usize, u: f32, v: f32) -> Vec3 {
     }
 }
 
-/// Degradado vertical: azul arriba, claro en el horizonte y mas oscuro abajo
-fn gradient(direction: &Vec3) -> Color {
+/// Degradado vertical (arriba, horizonte, abajo) mas el resplandor del horizonte del lado
+/// del sol
+fn gradient(direction: &Vec3, sun_direction: &Vec3, style: &SkyStyle) -> Color {
     let y = direction.y;
-    if y >= 0.0 {
-        Color::lerp(CIELO_HORIZONTE, CIELO_ARRIBA, smoothstep(0.0, 0.45, y))
+    let base = if y >= 0.0 {
+        Color::lerp(style.horizon, style.top, smoothstep(0.0, 0.45, y))
     } else {
-        Color::lerp(CIELO_HORIZONTE, CIELO_ABAJO, smoothstep(0.0, 0.3, -y))
+        Color::lerp(style.horizon, style.bottom, smoothstep(0.0, 0.3, -y))
+    };
+
+    // El resplandor es mas fuerte mirando hacia el sol y pegado al horizonte
+    let flat = |v: &Vec3| normalize(&Vec3::new(v.x, 0.0, v.z));
+    let toward_sun = dot(&flat(direction), &flat(sun_direction)).max(0.0);
+    let near_horizon = 1.0 - smoothstep(0.0, 0.5, y.abs());
+    base + style.glow * (toward_sun.powi(4) * near_horizon)
+}
+
+/// Estrellas: celdas chicas de una grilla sobre las direcciones, unas pocas elegidas al
+/// azar, cada una con su brillo. Se apagan cerca del horizonte, donde el aire es mas denso.
+fn stars(direction: &Vec3, density: f32) -> Color {
+    if density <= 0.0 || direction.y <= 0.0 {
+        return Color::black();
     }
+    let cell = [direction.x, direction.y, direction.z].map(|c| (c * 220.0).floor() as i32);
+    if speck_hash(cell) >= density {
+        return Color::black();
+    }
+    let brightness = 0.4 + 0.8 * speck_hash([cell[2], cell[0], cell[1]]);
+    Color::rgb(1.0, 1.0, 1.1) * (brightness * smoothstep(0.0, 0.25, direction.y))
 }
 
 /// Nubes: se proyecta la direccion sobre el plano de las nubes (altura 1) y se mira que
 /// pixel de clouds.png cae ahi. Cerca del horizonte se desvanecen, como con la niebla del
 /// juego, porque ahi los pixeles quedan tan lejos que se verian como ruido.
-fn with_clouds(sky: Color, direction: &Vec3, clouds: &ImageTexture) -> Color {
+fn with_clouds(sky: Color, direction: &Vec3, clouds: &ImageTexture, style: &SkyStyle) -> Color {
     if direction.y <= 0.02 {
         return sky;
     }
@@ -162,15 +266,22 @@ fn with_clouds(sky: Color, direction: &Vec3, clouds: &ImageTexture) -> Color {
 
     // La imagen mide 256 pixeles y se repite
     let (_, alpha) = clouds.sample(x / 256.0, (z / 256.0).rem_euclid(1.0));
-    let coverage = alpha.unwrap_or(1.0) * NUBE_OPACIDAD * smoothstep(0.03, 0.3, direction.y);
-    Color::lerp(sky, NUBE_COLOR, coverage)
+    let fade = smoothstep(0.03, 0.3, direction.y);
+    let coverage = alpha.unwrap_or(1.0) * style.cloud_opacity * fade;
+    Color::lerp(sky, style.clouds, coverage)
 }
 
 /// El sol es un cuadrado mirando a la camara. Se busca donde cae la direccion en el plano
 /// del sol (a distancia 1, perpendicular a `sun_direction`) y, si cae dentro del cuadrado,
 /// se toma ese pixel de sun.png. Su fondo negro no suma nada, asi el sol se funde con el
-/// cielo como en el juego.
-fn sun_color(direction: &Vec3, sun_direction: &Vec3, sun: &ImageTexture) -> Color {
+/// cielo como en el juego. `rect` es la parte de la imagen que se usa (u, v de la esquina,
+/// ancho y alto).
+fn sun_color(
+    direction: &Vec3,
+    sun_direction: &Vec3,
+    sun: &ImageTexture,
+    rect: [f32; 4],
+) -> Color {
     let facing = dot(direction, sun_direction);
     if facing <= 0.0 {
         return Color::black();
@@ -193,8 +304,19 @@ fn sun_color(direction: &Vec3, sun_direction: &Vec3, sun: &ImageTexture) -> Colo
         return Color::black();
     }
 
-    let (color, _) = sun.sample((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    color * SOL_BRILLO
+    let [u0, v0, width, height] = rect;
+    sun.sample(u0 + (x + 1.0) * 0.5 * width, v0 + (1.0 - y) * 0.5 * height).0
+}
+
+/// Numero entre 0 y 1 que parece al azar pero depende solo de la celda
+fn speck_hash([x, y, z]: [i32; 3]) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x8DA6_B343)
+        ^ (y as u32).wrapping_mul(0xD816_3841)
+        ^ (z as u32).wrapping_mul(0xCB1A_B31F);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5BD1_E995);
+    h ^= h >> 15;
+    (h & 0x00FF_FFFF) as f32 / 0x0100_0000 as f32
 }
 
 /// 0 antes de `from`, 1 despues de `to`, y una curva suave en medio
@@ -257,9 +379,18 @@ mod tests {
 
     #[test]
     fn el_cielo_es_mas_azul_arriba_que_en_el_horizonte() {
-        let arriba = gradient(&Vec3::new(0.0, 1.0, 0.0));
-        let horizonte = gradient(&Vec3::new(1.0, 0.0, 0.0));
+        let sol = normalize(&Vec3::new(-1.0, 1.0, 0.0));
+        let arriba = gradient(&Vec3::new(0.0, 1.0, 0.0), &sol, &DIA);
+        let horizonte = gradient(&Vec3::new(1.0, 0.0, 0.0), &sol, &DIA);
         assert!(arriba.r < horizonte.r && arriba.g < horizonte.g);
+    }
+
+    #[test]
+    fn al_atardecer_el_horizonte_se_enciende_del_lado_del_sol() {
+        let sol = normalize(&Vec3::new(-1.0, 0.3, 0.0));
+        let hacia_el_sol = gradient(&Vec3::new(-1.0, 0.0, 0.0), &sol, &ATARDECER);
+        let del_otro_lado = gradient(&Vec3::new(1.0, 0.0, 0.0), &sol, &ATARDECER);
+        assert!(hacia_el_sol.r > del_otro_lado.r + 0.3);
     }
 
     #[test]
@@ -267,9 +398,25 @@ mod tests {
         let sun = ImageTexture::load(&ruta("sun"));
         let hacia_el_sol = normalize(&Vec3::new(-1.0, 1.0, 0.5));
 
-        let centro = sun_color(&hacia_el_sol, &hacia_el_sol, sun);
-        assert!(centro.r > 1.0, "el centro del sol brilla: {centro:?}");
-        assert_eq!(sun_color(&-hacia_el_sol, &hacia_el_sol, sun), Color::black());
+        let centro = sun_color(&hacia_el_sol, &hacia_el_sol, sun, IMAGEN_ENTERA);
+        assert!(centro.r > 0.9, "el centro del sol brilla: {centro:?}");
+        let del_otro_lado = sun_color(&-hacia_el_sol, &hacia_el_sol, sun, IMAGEN_ENTERA);
+        assert_eq!(del_otro_lado, Color::black());
+    }
+
+    #[test]
+    fn de_noche_hay_estrellas_arriba_y_no_bajo_el_horizonte() {
+        let con_estrella = (0..2000)
+            .map(|i| {
+                let angulo = i as f32 * 0.37;
+                normalize(&Vec3::new(angulo.sin(), 1.0, (angulo * 0.6).cos()))
+            })
+            .filter(|d| stars(d, NOCHE.stars).r > 0.0)
+            .count();
+        assert!(con_estrella > 0 && con_estrella < 200, "{con_estrella} de 2000");
+
+        assert_eq!(stars(&Vec3::new(1.0, -0.2, 0.0), NOCHE.stars), Color::black());
+        assert_eq!(stars(&Vec3::new(0.0, 1.0, 0.0), DIA.stars), Color::black());
     }
 
     #[test]
@@ -280,10 +427,11 @@ mod tests {
         // Recorriendo el cielo, algunas direcciones tienen nube y otras no
         let con_nube = (0..200)
             .map(|i| normalize(&Vec3::new(i as f32 * 0.037, 1.0, i as f32 * 0.021)))
-            .filter(|d| with_clouds(azul, d, clouds).r > 0.1)
+            .filter(|d| with_clouds(azul, d, clouds, &DIA).r > 0.1)
             .count();
         assert!(con_nube > 10 && con_nube < 190, "{con_nube} de 200 con nube");
 
-        assert_eq!(with_clouds(azul, &Vec3::new(1.0, -0.1, 0.0), clouds), azul);
+        let bajo_el_horizonte = Vec3::new(1.0, -0.1, 0.0);
+        assert_eq!(with_clouds(azul, &bajo_el_horizonte, clouds, &DIA), azul);
     }
 }

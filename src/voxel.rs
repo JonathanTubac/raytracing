@@ -13,6 +13,9 @@ use crate::ray_intersect::{Intersect, Material, RayIntersect};
 /// Celda vacia (aire). Las demas guardan 1 + el indice de su material en la paleta.
 const AIRE: u8 = 0;
 
+/// Las 6 celdas vecinas de una celda, que comparten una cara con ella
+const NEIGHBORS: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+
 pub struct VoxelWorld {
     /// Esquina minima de la grilla en el mundo. La celda (i, j, k) ocupa el cubo que va
     /// de `min_corner + (i, j, k)` a `min_corner + (i + 1, j + 1, k + 1)`.
@@ -73,14 +76,22 @@ impl VoxelWorld {
         self.cells.iter().filter(|&&c| c != AIRE).count()
     }
 
-    /// Centro y material de cada bloque emisivo, para ponerle una luz
+    /// Centro y material de cada bloque emisivo que tiene alguna cara al aire (o a algo
+    /// transparente), para ponerle una luz. Los enterrados no pueden alumbrar nada.
     pub fn emissive_blocks(&self) -> Vec<(Vec3, Material)> {
+        let open = |cell: [i32; 3]| {
+            let block = self.get(cell);
+            block == AIRE || self.is_transparent(block)
+        };
         let mut blocks = Vec::new();
         for y in 0..self.size[1] {
             for z in 0..self.size[2] {
                 for x in 0..self.size[0] {
                     let block = self.get([x, y, z]);
-                    if block != AIRE && self.material(block).emission > 0.0 {
+                    let exposed = NEIGHBORS
+                        .iter()
+                        .any(|[dx, dy, dz]| open([x + dx, y + dy, z + dz]));
+                    if block != AIRE && self.material(block).emission > 0.0 && exposed {
                         let offset = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                         blocks.push((self.min_corner + offset, self.material(block)));
                     }

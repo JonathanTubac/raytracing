@@ -1,1 +1,3 @@
 /target
+# Cuadros de prueba del viaje por el portal (cargo run -- --viaje)
+viaje_*.png

@@ -9,9 +9,6 @@ use crate::math::{dot, normalize, Vec3};
 use crate::ray_intersect::{Intersect, RayIntersect};
 use crate::skybox::Skybox;
 
-// Luz minima que recibe cualquier superficie, aunque la luz no le llegue de frente
-const AMBIENTE: f32 = 0.15;
-
 // Cuantas veces puede rebotar o atravesar un rayo antes de rendirse
 const MAX_DEPTH: u32 = 4;
 
@@ -28,6 +25,9 @@ pub struct Scene<'a, O> {
     pub objects: &'a [O],
     pub lights: &'a [Light],
     pub skybox: &'a Skybox,
+    /// Luz minima que recibe cualquier superficie, aunque ninguna luz le llegue de frente:
+    /// la que rebota por todos lados. Mas baja y fria de noche que de dia.
+    pub ambient: Color,
     /// Si se usan los mapas normales. Se puede apagar en vivo (tecla N) para comparar
     /// como se ve el relieve con y sin ellos.
     pub normal_maps: bool,
@@ -186,7 +186,7 @@ pub fn cast_ray<O: RayIntersect>(
 
     // Luz que llega directo de cada luz a este punto. Empieza con la luz ambiente: la
     // minima que recibe cualquier superficie aunque ninguna luz le llegue de frente.
-    let mut diffuse_light = Color::rgb(AMBIENTE, AMBIENTE, AMBIENTE);
+    let mut diffuse_light = scene.ambient;
     let mut specular = Color::black();
 
     for light in scene.lights {
@@ -341,6 +341,9 @@ mod tests {
     use crate::sphere::Sphere;
     use crate::texture::{ImageTexture, Texture};
 
+    // Luz ambiente de las pruebas
+    const AMBIENTE: f32 = 0.15;
+
     // Material mate del color dado
     fn mate(color: Color) -> Material {
         Material::new(Texture::Solid(color))
@@ -397,6 +400,7 @@ mod tests {
             objects,
             lights,
             skybox: &skybox,
+            ambient: Color::rgb(AMBIENTE, AMBIENTE, AMBIENTE),
             normal_maps: true,
         };
         cast_ray(origen, direccion, &scene, 0)
