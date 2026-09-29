@@ -67,6 +67,18 @@ impl ImageTexture {
         self.height
     }
 
+    /// Color promedio de los pixeles visibles
+    fn average(&self) -> Color {
+        let mut sum = Color::black();
+        let mut weight = 0.0;
+        for (i, pixel) in self.pixels.iter().enumerate() {
+            let alpha = self.alpha.as_ref().map_or(1.0, |alpha| alpha[i]);
+            sum += *pixel * alpha;
+            weight += alpha;
+        }
+        if weight > 0.0 { sum * (1.0 / weight) } else { Color::black() }
+    }
+
     /// Brillo del pixel (x, y), de 0 a 1. Las coordenadas dan la vuelta en los bordes,
     /// porque las texturas de Minecraft se repiten sin costura de un bloque al siguiente.
     pub fn luminance(&self, x: isize, y: isize) -> f32 {
@@ -130,6 +142,17 @@ impl Texture {
                 Face::Side => side.sample(u, v),
                 Face::Bottom => bottom.sample(u, v),
             },
+        }
+    }
+
+    /// Color promedio de la textura (el de los lados, en un bloque con caras distintas)
+    pub fn average_color(&self) -> Color {
+        match self {
+            Texture::Solid(color) => *color,
+            #[cfg(test)]
+            Texture::Checker { a, b, .. } => Color::lerp(*a, *b, 0.5),
+            Texture::Image(image) => image.average(),
+            Texture::Block { side, .. } => side.average(),
         }
     }
 

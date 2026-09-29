@@ -28,6 +28,9 @@ pub struct Scene<'a, O> {
     pub objects: &'a [O],
     pub lights: &'a [Light],
     pub skybox: &'a Skybox,
+    /// Si se usan los mapas normales. Se puede apagar en vivo (tecla N) para comparar
+    /// como se ve el relieve con y sin ellos.
+    pub normal_maps: bool,
 }
 
 /// Direccion en que rebota un rayo que llega con `incident` a una superficie con esa normal
@@ -72,7 +75,11 @@ fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
 }
 
 /// El impacto mas cercano del rayo entre todos los objetos de la escena
-fn closest_hit<O: RayIntersect>(objects: &[O], origin: &Vec3, direction: &Vec3) -> Option<Intersect> {
+fn closest_hit<O: RayIntersect>(
+    objects: &[O],
+    origin: &Vec3,
+    direction: &Vec3,
+) -> Option<Intersect> {
     // Z-buffer: guarda la distancia del impacto mas cercano visto hasta ahora en este rayo.
     // Un objeto solo cuenta si choca mas cerca que lo que ya esta guardado, asi el
     // resultado no depende del orden en que se agregaron los objetos.
@@ -110,7 +117,8 @@ fn light_visibility<O: RayIntersect>(
         let Some(hit) = closest_hit(objects, &origin, &direction) else {
             return visibility;
         };
-        if hit.distance >= remaining {
+        // Llego a la luz: o la paso, o choco con el bloque que la emite
+        if hit.distance >= remaining || light.contains(&hit.point) {
             return visibility;
         }
 
@@ -164,12 +172,13 @@ pub fn cast_ray<O: RayIntersect>(
         hit.normal = -hit.normal;
     }
 
-    // Normal para iluminar: la del mapa normal si el material tiene relieve, o la de la
-    // cara si es lisa. La normal de la cara (`hit.normal`) se sigue usando para separar
-    // los rayos nuevos de la superficie, porque es la que dice de que lado esta cada cosa.
+    // Normal para iluminar: la del mapa normal si el material tiene relieve (y los mapas
+    // estan prendidos), o la de la cara si es lisa. La normal de la cara (`hit.normal`) se
+    // sigue usando para separar los rayos nuevos de la superficie, porque es la que dice de
+    // que lado esta cada cosa.
     let normal = match material.normal_map {
-        Some(normal_map) => normal_map.perturb(&hit),
-        None => hit.normal,
+        Some(normal_map) if scene.normal_maps => normal_map.perturb(&hit),
+        _ => hit.normal,
     };
 
     let transparency = material.transparency_at(alpha);
@@ -181,9 +190,18 @@ pub fn cast_ray<O: RayIntersect>(
     let mut specular = Color::black();
 
     for light in scene.lights {
+        // Las luces de los bloques emisivos solo alumbran de cerca. Si este punto esta
+        // fuera de su alcance no aporta nada, y se ahorra el rayo de sombra.
+        let to_light = light.position - hit.point;
+        let distance = to_light.norm();
+        let attenuation = light.attenuation(distance);
+        if attenuation <= 0.0 {
+            continue;
+        }
+
         // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
         // Es el coseno del angulo entre la normal y la direccion hacia la luz.
-        let light_dir = normalize(&(light.position - hit.point));
+        let light_dir = to_light * (1.0 / distance);
         if dot(&hit.normal, &light_dir) <= 0.0 {
             // La luz esta del otro lado de la cara: no aporta nada, ni hace falta revisar si
             // hay algo tapandola. Se mira la cara y no el relieve, para que la luz no se
@@ -197,7 +215,7 @@ pub fn cast_ray<O: RayIntersect>(
         if visibility <= 0.0 {
             continue;
         }
-        let light_color = light.color * (light.intensity * visibility);
+        let light_color = light.color * (light.intensity * attenuation * visibility);
 
         diffuse_light += light_color * facing;
 
@@ -213,6 +231,12 @@ pub fn cast_ray<O: RayIntersect>(
     let coverage = if material.transparency > 0.0 { alpha.unwrap_or(1.0) } else { 1.0 };
     let mut color =
         base * diffuse_light * (material.albedo[0] * coverage) + specular * material.albedo[1];
+
+    // Luz propia: los bloques emisivos brillan con el color de su textura aunque no les
+    // llegue ninguna luz. Puede pasar de 1.0; el tone mapping lo suaviza.
+    if material.emission > 0.0 {
+        color += base * material.emission;
+    }
 
     // Reflejo: se lanza otro rayo en la direccion de rebote y se mezcla lo que encuentre
     if material.reflectivity > 0.0 {
@@ -369,7 +393,13 @@ mod tests {
         lights: &[Light],
     ) -> Color {
         let skybox = cielo();
-        cast_ray(origen, direccion, &Scene { objects, lights, skybox: &skybox }, 0)
+        let scene = Scene {
+            objects,
+            lights,
+            skybox: &skybox,
+            normal_maps: true,
+        };
+        cast_ray(origen, direccion, &scene, 0)
     }
 
     #[test]
@@ -618,6 +648,46 @@ mod tests {
         assert!(diferencia(&lisa) <= 1);
         // Con relieve, la parte donde la rampa es mas empinada mira mas lejos de la luz
         assert!(diferencia(&con_relieve) >= 10, "{}", diferencia(&con_relieve));
+    }
+
+    #[test]
+    fn un_bloque_emisivo_brilla_sin_luz_y_alumbra_de_cerca() {
+        let lampara = Material {
+            emission: 1.5,
+            ..mate(Color::new(200, 150, 50))
+        };
+        let lampara_en = |p: Vec3| Cube::new(p, 1.0, lampara);
+
+        // Sin ninguna luz en la escena, el bloque emisivo igual se ve (y la piedra no)
+        let a_oscuras = lanzar_en::<Cube>(&[lampara_en(Vec3::new(0.0, 0.0, -5.0))]);
+        assert!(a_oscuras.r > 0.9, "{a_oscuras:?}");
+
+        // Su luz alumbra el piso de al lado y no el que esta lejos
+        let luz = |centro: Vec3| Light::from_block(centro, Color::rgb(1.0, 0.8, 0.4), 1.2, 6.0);
+        let junto = Vec3::new(0.0, 1.0, -1.0);
+        let cerca = mirar_el_piso(&[piso(), lampara_en(junto)], &[luz(junto)]);
+        let lejos = mirar_el_piso(&[piso()], &[luz(Vec3::new(0.0, 1.0, -9.0))]);
+        let sin_luz = mirar_el_piso(&[piso()], &[]);
+
+        assert!(cerca.r > sin_luz.r + 0.2, "{cerca:?} vs {sin_luz:?}");
+        assert_eq!(rojo(lejos), rojo(sin_luz));
+    }
+
+    #[test]
+    fn el_bloque_de_la_luz_no_se_hace_sombra_a_si_mismo() {
+        // La luz esta dentro del bloque, justo arriba del punto del piso que se mira: el
+        // rayo de sombra choca con el bloque, pero ese bloque es la luz
+        let centro = Vec3::new(0.0, 1.0, 0.0);
+        let emisivo = Material {
+            emission: 1.0,
+            ..mate(Color::new(255, 255, 255))
+        };
+        let bloque = Cube::new(centro, 1.0, emisivo);
+        let luz = Light::from_block(centro, Color::rgb(1.0, 1.0, 1.0), 1.0, 8.0);
+
+        let con_luz = mirar_el_piso(&[piso(), bloque], &[luz]);
+        let sin_luz = mirar_el_piso(&[piso()], &[]);
+        assert!(con_luz.r > sin_luz.r + 0.3);
     }
 
     #[test]

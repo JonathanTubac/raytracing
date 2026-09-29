@@ -27,6 +27,10 @@ pub struct Material {
     pub refractive_index: f32,
     /// Relieve de la superficie: cambia la normal punto por punto (`None` = cara lisa)
     pub normal_map: Option<NormalMap>,
+    /// Luz propia que emite la superficie, como multiplo del color de su textura (0 = no
+    /// emite). Se ve igual este o no iluminada, y en la escena ademas alumbra lo que tiene
+    /// cerca.
+    pub emission: f32,
 }
 
 impl Material {
@@ -41,6 +45,7 @@ impl Material {
             reflectivity: 0.0,
             refractive_index: 1.0,
             normal_map: None,
+            emission: 0.0,
         }
     }
 

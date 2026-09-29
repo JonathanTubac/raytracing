@@ -73,6 +73,23 @@ impl VoxelWorld {
         self.cells.iter().filter(|&&c| c != AIRE).count()
     }
 
+    /// Centro y material de cada bloque emisivo, para ponerle una luz
+    pub fn emissive_blocks(&self) -> Vec<(Vec3, Material)> {
+        let mut blocks = Vec::new();
+        for y in 0..self.size[1] {
+            for z in 0..self.size[2] {
+                for x in 0..self.size[0] {
+                    let block = self.get([x, y, z]);
+                    if block != AIRE && self.material(block).emission > 0.0 {
+                        let offset = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                        blocks.push((self.min_corner + offset, self.material(block)));
+                    }
+                }
+            }
+        }
+        blocks
+    }
+
     fn index(&self, cell: [i32; 3]) -> Option<usize> {
         let [x, y, z] = cell;
         let [sx, sy, sz] = self.size;
@@ -214,7 +231,8 @@ impl RayIntersect for VoxelWorld {
                         if block != AIRE && !self.is_transparent(block) {
                             return self.hit(ray_origin, d, t, cell, axis, entered_positive, block);
                         }
-                        return self.hit(ray_origin, d, t, previous, axis, !entered_positive, medium);
+                        let exit_positive = !entered_positive;
+                        return self.hit(ray_origin, d, t, previous, axis, exit_positive, medium);
                     }
                 } else {
                     // Dentro de un bloque opaco (por el hueco de una hoja): se ve la cara de
@@ -308,7 +326,8 @@ mod tests {
         let mut con_impacto = 0;
         for _ in 0..500 {
             let origen = Vec3::new(azar.entre(-12.0, 12.0), azar.entre(-8.0, 8.0), 12.0);
-            let objetivo = Vec3::new(azar.entre(-4.0, 4.0), azar.entre(-3.0, 3.0), azar.entre(-4.0, 4.0));
+            let objetivo =
+                Vec3::new(azar.entre(-4.0, 4.0), azar.entre(-3.0, 3.0), azar.entre(-4.0, 4.0));
             let direccion = normalize(&(objetivo - origen));
 
             let grilla = mundo.ray_intersect(&origen, &direccion);
@@ -325,7 +344,8 @@ mod tests {
                     assert!(grilla.is_intersecting);
                     assert!((grilla.distance - esperado.distance).abs() < 1e-3);
                     assert!((grilla.normal - esperado.normal).norm() < 1e-5);
-                    assert!((grilla.u - esperado.u).abs() < 1e-3 && (grilla.v - esperado.v).abs() < 1e-3);
+                    assert!((grilla.u - esperado.u).abs() < 1e-3);
+                    assert!((grilla.v - esperado.v).abs() < 1e-3);
                     assert_eq!(grilla.material, esperado.material);
                 }
             }
@@ -388,6 +408,18 @@ mod tests {
         assert!((hit.distance - 0.7).abs() < 1e-5);
         assert_eq!(hit.material, mate(1));
         assert!((hit.normal - Vec3::new(0.0, 0.0, -1.0)).norm() < 1e-5);
+    }
+
+    #[test]
+    fn encuentra_el_centro_de_los_bloques_emisivos() {
+        let lampara = Material { emission: 1.0, ..mate(5) };
+        let mundo =
+            VoxelWorld::new(&[([0, 0, 0], mate(1)), ([3, -2, 1], lampara), ([1, 1, 1], mate(1))]);
+
+        let emisivos = mundo.emissive_blocks();
+        assert_eq!(emisivos.len(), 1);
+        assert!((emisivos[0].0 - Vec3::new(3.0, -2.0, 1.0)).norm() < 1e-6);
+        assert_eq!(emisivos[0].1, lampara);
     }
 
     #[test]

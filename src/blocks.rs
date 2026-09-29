@@ -49,6 +49,7 @@ pub struct Blocks {
     pub water: Material,
     pub sand: Material,
     pub glowstone: Material,
+    pub sea_lantern: Material,
     pub diamond: Material,
     pub gold: Material,
     pub obsidian: Material,
@@ -142,11 +143,21 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("sand")))
             },
 
-            // Piedra luminosa: por ahora solo su textura; en la fase de materiales emisivos
-            // va a dar luz propia
+            // Piedra luminosa: emite luz calida propia y alumbra lo que tiene alrededor.
+            // Casi no refleja la luz de afuera, porque su propio brillo la tapa.
             glowstone: Material {
-                albedo: [1.0, 0.0],
+                albedo: [0.4, 0.0],
+                emission: 0.9,
                 ..Material::new(Texture::Image(textura("glowstone")))
+            },
+
+            // Linterna marina: emite una luz fria, casi blanca, y es algo pulida
+            sea_lantern: Material {
+                albedo: [0.4, 0.3],
+                specular: 60.0,
+                reflectivity: 0.05,
+                emission: 0.9,
+                ..Material::new(Texture::Image(textura("sea_lantern")))
             },
 
             // Diamante: pulido, refleja bastante y tiene un brillo chiquito y fuerte

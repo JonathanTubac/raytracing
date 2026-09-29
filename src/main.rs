@@ -40,12 +40,13 @@ fn main() {
 
     // Todo el diorama es un solo objeto: la grilla de voxeles
     let world = objetos();
-    let lights = luces();
+    let lights = luces(&world);
     let skybox = cielo();
-    let scene = Scene {
+    let mut scene = Scene {
         objects: std::slice::from_ref(&world),
         lights: &lights,
         skybox: &skybox,
+        normal_maps: true,
     };
     let mut camera = camara();
     let mut controls = Controls::new();
@@ -81,6 +82,9 @@ fn main() {
 
     let mut window = Window::new("Raytracer", framebuffer.width, framebuffer.height)
         .expect("Error al crear la ventana");
+    window.set_title(&titulo(&scene));
+    // Para cambiar los mapas normales una sola vez por cada vez que se aprieta la N
+    let mut n_apretada = false;
 
     render(&mut framebuffer, &scene, &camera, 1);
     // Si el ultimo cuadro se dibujo a baja resolucion y falta el de resolucion completa
@@ -91,6 +95,15 @@ fn main() {
 
         // Solo se vuelve a renderizar cuando la camara se mueve, o cuando se deja de mover
         // para dibujar el cuadro con todo el detalle
+        // N prende y apaga los mapas normales, para comparar el relieve con y sin ellos
+        let n = window.is_key_down(Key::N);
+        if n && !n_apretada {
+            scene.normal_maps = !scene.normal_maps;
+            window.set_title(&titulo(&scene));
+            falta_detalle = true;
+        }
+        n_apretada = n;
+
         if controls.update(&window, &mut camera) {
             render(&mut framebuffer, &scene, &camera, PIXEL_EN_MOVIMIENTO);
             falta_detalle = true;
@@ -105,4 +118,10 @@ fn main() {
             std::thread::sleep(sobra);
         }
     }
+}
+
+/// Titulo de la ventana: el nombre, los controles y si los mapas normales estan prendidos
+fn titulo<O>(scene: &Scene<O>) -> String {
+    let mapas = if scene.normal_maps { "si" } else { "no" };
+    format!("Raytracer | flechas/mouse: rotar, W/S/rueda: zoom | N: mapas normales ({mapas})")
 }

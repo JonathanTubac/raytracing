@@ -91,6 +91,7 @@ unsafe extern "system" {
     fn TranslateMessage(msg: *const Msg) -> i32;
     fn DispatchMessageW(msg: *const Msg) -> LResult;
     fn DestroyWindow(hwnd: Handle) -> i32;
+    fn SetWindowTextW(hwnd: Handle, text: *const u16) -> i32;
     fn AdjustWindowRect(rect: *mut Rect, style: u32, menu: i32) -> i32;
     fn GetClientRect(hwnd: Handle, rect: *mut Rect) -> i32;
     fn GetDC(hwnd: Handle) -> Handle;
@@ -153,6 +154,7 @@ pub enum Key {
     Down = 0x28,
     W = 0x57,
     S = 0x53,
+    N = 0x4E,
     Escape = 0x1B,
 }
 
@@ -296,6 +298,14 @@ impl Window {
 
     pub fn is_key_down(&self, key: Key) -> bool {
         INPUT.with_borrow(|input| input.keys[key as usize])
+    }
+
+    /// Cambia el texto de la barra de titulo
+    pub fn set_title(&self, title: &str) {
+        let title = wide(title);
+        unsafe {
+            SetWindowTextW(self.hwnd, title.as_ptr());
+        }
     }
 
     /// Posicion del mouse dentro de la ventana, en pixeles
