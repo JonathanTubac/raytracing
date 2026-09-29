@@ -28,25 +28,30 @@ impl Cube {
         normal
     }
 
-    /// Coordenadas de textura del punto sobre la cara con esa normal. Cada cara recibe la
-    /// textura completa, vista desde afuera y derecha: v = 0 arriba y u = 0 a la izquierda.
-    fn face_uv(&self, point: &Vec3, normal: &Vec3) -> (f32, f32) {
+    /// Coordenadas de textura del punto sobre la cara con esa normal, y las direcciones en
+    /// el mundo hacia donde crecen u y v. Cada cara recibe la textura completa, vista desde
+    /// afuera y derecha: v = 0 arriba y u = 0 a la izquierda.
+    fn face_uv(&self, point: &Vec3, normal: &Vec3) -> (f32, f32, Vec3, Vec3) {
         // Posicion del punto dentro del cubo, de 0 a 1 en cada eje
         let size = self.max - self.min;
         let p = (point - self.min).component_div(&size);
 
+        let x = Vec3::new(1.0, 0.0, 0.0);
+        let y = Vec3::new(0.0, 1.0, 0.0);
+        let z = Vec3::new(0.0, 0.0, 1.0);
+
         if normal.x > 0.5 {
-            (1.0 - p.z, 1.0 - p.y)
+            (1.0 - p.z, 1.0 - p.y, -z, -y)
         } else if normal.x < -0.5 {
-            (p.z, 1.0 - p.y)
+            (p.z, 1.0 - p.y, z, -y)
         } else if normal.z > 0.5 {
-            (p.x, 1.0 - p.y)
+            (p.x, 1.0 - p.y, x, -y)
         } else if normal.z < -0.5 {
-            (1.0 - p.x, 1.0 - p.y)
+            (1.0 - p.x, 1.0 - p.y, -x, -y)
         } else if normal.y > 0.5 {
-            (p.x, p.z)
+            (p.x, p.z, x, z)
         } else {
-            (p.x, 1.0 - p.z)
+            (p.x, 1.0 - p.z, x, -z)
         }
     }
 }
@@ -111,14 +116,15 @@ impl RayIntersect for Cube {
 
         let point = ray_origin + ray_direction * distance;
         let normal = Cube::face_normal(axis, positive);
-        let (u, v) = self.face_uv(&point, &normal);
+        let (u, v, tangent, bitangent) = self.face_uv(&point, &normal);
         let face = match (axis, positive) {
             (1, true) => Face::Top,
             (1, false) => Face::Bottom,
             _ => Face::Side,
         };
 
-        Intersect::new(point, normal, distance, self.material, u, v).on_face(face)
+        Intersect::new(point, normal, distance, self.material, u, v)
+            .on_face(face, tangent, bitangent)
     }
 }
 
@@ -126,6 +132,7 @@ impl RayIntersect for Cube {
 mod tests {
     use super::*;
     use crate::color::Color;
+    use crate::math::dot;
     use crate::texture::Texture;
 
     fn cubo() -> Cube {
@@ -219,6 +226,35 @@ mod tests {
         assert_eq!(cara(Vec3::new(0.0, -1.0, 0.0)), Face::Bottom);
         assert_eq!(cara(Vec3::new(1.0, 0.0, 0.0)), Face::Side);
         assert_eq!(cara(Vec3::new(0.0, 0.0, -1.0)), Face::Side);
+    }
+
+    #[test]
+    fn la_tangente_y_la_bitangente_apuntan_hacia_donde_crecen_u_y_v() {
+        let cubo = cubo();
+        let centro = Vec3::new(0.0, 0.0, -5.0);
+        let ejes = [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        ];
+
+        for eje in ejes {
+            // Rayo hacia el centro de la cara, y otro corrido un poco sobre la tangente
+            // (o la bitangente): u (o v) tiene que crecer y lo otro quedar igual
+            let origen = centro + eje * 5.0;
+            let hit = cubo.ray_intersect(&origen, &-eje);
+            let corrido_t = cubo.ray_intersect(&(origen + hit.tangent * 0.2), &-eje);
+            let corrido_b = cubo.ray_intersect(&(origen + hit.bitangent * 0.2), &-eje);
+
+            assert!(corrido_t.u > hit.u + 0.05 && (corrido_t.v - hit.v).abs() < 1e-5, "{eje:?}");
+            assert!(corrido_b.v > hit.v + 0.05 && (corrido_b.u - hit.u).abs() < 1e-5, "{eje:?}");
+            // Las dos quedan sobre la cara, perpendiculares a la normal
+            assert!(dot(&hit.tangent, &hit.normal).abs() < 1e-6);
+            assert!(dot(&hit.bitangent, &hit.normal).abs() < 1e-6);
+        }
     }
 
     #[test]

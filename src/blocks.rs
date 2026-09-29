@@ -3,6 +3,7 @@
 //! y reflectividad.
 
 use crate::color::Color;
+use crate::normal_map::NormalMap;
 use crate::ray_intersect::Material;
 use crate::texture::{ImageTexture, Texture};
 
@@ -17,6 +18,16 @@ fn textura(nombre: &str) -> &'static ImageTexture {
 
 fn textura_tenida(nombre: &str, tinte: Color) -> &'static ImageTexture {
     ImageTexture::load_tinted(&ruta(nombre), tinte)
+}
+
+/// El mismo material con un mapa normal generado de su propia textura. `fuerza` es cuanto
+/// relieve tiene: poco para superficies casi lisas (arena, metal pulido) y mucho para las
+/// muy rugosas (piedra labrada).
+fn con_relieve(material: Material, fuerza: f32) -> Material {
+    Material {
+        normal_map: NormalMap::from_texture(&material.texture, fuerza),
+        ..material
+    }
 }
 
 fn ruta(nombre: &str) -> String {
@@ -47,7 +58,7 @@ impl Blocks {
     pub fn load() -> Blocks {
         let dirt_texture = textura("dirt");
 
-        Blocks {
+        let b = Blocks {
             // Pasto: verde arriba, tierra abajo y tierra con borde verde a los lados. Mate.
             grass: Material {
                 albedo: [0.95, 0.05],
@@ -161,6 +172,27 @@ impl Blocks {
                 reflectivity: 0.2,
                 ..Material::new(Texture::Image(textura("obsidian")))
             },
+        };
+
+        // Relieve de cada bloque. El vidrio queda liso: su textura es casi toda
+        // transparente y el relieve solo ensuciaria lo que se ve a traves. La piedra
+        // luminosa tambien: da luz propia, y una superficie que brilla no muestra relieve.
+        Blocks {
+            grass: con_relieve(b.grass, 0.8),
+            dirt: con_relieve(b.dirt, 1.5),
+            stone: con_relieve(b.stone, 2.5),
+            cobblestone: con_relieve(b.cobblestone, 3.5),
+            planks: con_relieve(b.planks, 2.0),
+            log: con_relieve(b.log, 2.5),
+            leaves: con_relieve(b.leaves, 1.0),
+            // En el agua el relieve son ondas: dobla distinto la luz que la atraviesa y la
+            // que refleja, asi el fondo y el cielo se ven ondulados
+            water: con_relieve(b.water, 1.0),
+            sand: con_relieve(b.sand, 1.2),
+            diamond: con_relieve(b.diamond, 2.0),
+            gold: con_relieve(b.gold, 2.0),
+            obsidian: con_relieve(b.obsidian, 2.0),
+            ..b
         }
     }
 }

@@ -150,6 +150,14 @@ pub fn cast_ray<O: RayIntersect>(
         hit.normal = -hit.normal;
     }
 
+    // Normal para iluminar: la del mapa normal si el material tiene relieve, o la de la
+    // cara si es lisa. La normal de la cara (`hit.normal`) se sigue usando para separar
+    // los rayos nuevos de la superficie, porque es la que dice de que lado esta cada cosa.
+    let normal = match material.normal_map {
+        Some(normal_map) => normal_map.perturb(&hit),
+        None => hit.normal,
+    };
+
     let transparency = material.transparency_at(alpha);
     let view_dir = normalize(&-ray_direction);
 
@@ -162,12 +170,13 @@ pub fn cast_ray<O: RayIntersect>(
         // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
         // Es el coseno del angulo entre la normal y la direccion hacia la luz.
         let light_dir = normalize(&(light.position - hit.point));
-        let facing = dot(&hit.normal, &light_dir);
-        if facing <= 0.0 {
-            // La luz esta del otro lado de la superficie: no aporta nada, ni hace falta
-            // revisar si hay algo tapandola
+        if dot(&hit.normal, &light_dir) <= 0.0 {
+            // La luz esta del otro lado de la cara: no aporta nada, ni hace falta revisar si
+            // hay algo tapandola. Se mira la cara y no el relieve, para que la luz no se
+            // cuele por detras del bloque.
             continue;
         }
+        let facing = dot(&normal, &light_dir).max(0.0);
 
         // Sombra: si algo tapa la luz, esta no aporta nada (o solo una parte si es vidrio)
         let visibility = light_visibility(&hit.point, &hit.normal, light, scene.objects);
@@ -180,7 +189,7 @@ pub fn cast_ray<O: RayIntersect>(
 
         // Luz especular: el brillo de la luz sobre la superficie, que se ve solo cuando la
         // camara esta cerca de la direccion en la que rebota la luz
-        let reflected_light = reflect(&-light_dir, &hit.normal);
+        let reflected_light = reflect(&-light_dir, &normal);
         let shine = dot(&view_dir, &reflected_light).max(0.0).powf(material.specular);
         specular += light_color * shine;
     }
@@ -193,7 +202,7 @@ pub fn cast_ray<O: RayIntersect>(
 
     // Reflejo: se lanza otro rayo en la direccion de rebote y se mezcla lo que encuentre
     if material.reflectivity > 0.0 {
-        let direction = normalize(&reflect(ray_direction, &hit.normal));
+        let direction = normalize(&reflect(ray_direction, &normal));
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
         let reflected = cast_ray(&origin, &direction, scene, depth + 1);
 
@@ -203,9 +212,9 @@ pub fn cast_ray<O: RayIntersect>(
     // Transparencia: se lanza otro rayo que atraviesa la superficie doblandose. Si no puede
     // atravesarla (reflexion total interna), el rayo rebota por dentro.
     if transparency > 0.0 {
-        let direction = match refract(ray_direction, &hit.normal, material.refractive_index) {
+        let direction = match refract(ray_direction, &normal, material.refractive_index) {
             Some(refracted) => normalize(&refracted),
-            None => normalize(&reflect(ray_direction, &hit.normal)),
+            None => normalize(&reflect(ray_direction, &normal)),
         };
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
         let refracted = cast_ray(&origin, &direction, scene, depth + 1);
@@ -266,9 +275,10 @@ pub fn render<O: RayIntersect>(framebuffer: &mut Framebuffer, scene: &Scene<O>, 
 mod tests {
     use super::*;
     use crate::cube::Cube;
+    use crate::normal_map::NormalMap;
     use crate::ray_intersect::Material;
     use crate::sphere::Sphere;
-    use crate::texture::Texture;
+    use crate::texture::{ImageTexture, Texture};
 
     // Material mate del color dado
     fn mate(color: Color) -> Material {
@@ -534,6 +544,43 @@ mod tests {
         let azul = Light::new(Vec3::new(0.0, 4.0, 0.0), Color::rgb(0.0, 0.0, 1.0), 0.8);
         let tenido = mirar_el_piso(&[piso()], &[azul]);
         assert!(tenido.b > tenido.r * 2.0);
+    }
+
+    #[test]
+    fn el_mapa_normal_hace_que_una_cara_plana_se_ilumine_distinto_en_cada_pixel() {
+        // Textura gris pareja, pero con un mapa normal de una rampa: cada columna de
+        // pixeles queda inclinada distinto respecto a la luz
+        let gris = Texture::Image(ImageTexture::from_pixels(1, 1, vec![Color::new(200, 200, 200)]));
+        let rampa: Vec<Color> = (0..16).map(|i| Color::new((i * i) as u8, 0, 0)).collect();
+        let relieve = Texture::Image(ImageTexture::from_pixels(16, 1, rampa));
+
+        let pared = |normal_map| {
+            Cube::new(
+                Vec3::new(0.0, 0.0, -5.0),
+                2.0,
+                Material {
+                    normal_map,
+                    ..mate(Color::new(0, 0, 0))
+                },
+            )
+        };
+        let lisa = pared(None);
+        let con_relieve = pared(NormalMap::from_texture(&relieve, 4.0));
+
+        // La luz llega en diagonal para que la inclinacion se note, y esta muy lejos para que
+        // llegue igual (casi paralela) a toda la cara
+        let luz = [blanca(Vec3::new(-600.0, 0.0, 600.0), 0.8)];
+        let brillo = |cubo: &Cube, x: f32| {
+            let cubo = Cube { material: Material { texture: gris, ..cubo.material }, ..*cubo };
+            let origen = Vec3::new(x, 0.0, 0.0);
+            rojo(trazar(&origen, &Vec3::new(0.0, 0.0, -1.0), &[cubo], &luz))
+        };
+
+        // Sin relieve toda la cara recibe (casi) la misma luz
+        let diferencia = |cubo: &Cube| brillo(cubo, -0.5).abs_diff(brillo(cubo, 0.5));
+        assert!(diferencia(&lisa) <= 1);
+        // Con relieve, la parte donde la rampa es mas empinada mira mas lejos de la luz
+        assert!(diferencia(&con_relieve) >= 10, "{}", diferencia(&con_relieve));
     }
 
     #[test]

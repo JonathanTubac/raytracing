@@ -48,6 +48,35 @@ impl ImageTexture {
         }))
     }
 
+    /// Textura hecha a mano con pixeles opacos, para las pruebas
+    #[cfg(test)]
+    pub fn from_pixels(width: usize, height: usize, pixels: Vec<Color>) -> &'static ImageTexture {
+        Box::leak(Box::new(ImageTexture {
+            width,
+            height,
+            pixels,
+            alpha: None,
+        }))
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Brillo del pixel (x, y), de 0 a 1. Las coordenadas dan la vuelta en los bordes,
+    /// porque las texturas de Minecraft se repiten sin costura de un bloque al siguiente.
+    pub fn luminance(&self, x: isize, y: isize) -> f32 {
+        let x = x.rem_euclid(self.width as isize) as usize;
+        let y = y.rem_euclid(self.height as isize) as usize;
+        let c = self.pixels[y * self.width + x];
+        // Pesos del ojo humano: el verde se percibe mas brillante que el rojo y el azul
+        0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+    }
+
     /// Pixel mas cercano, sin suavizar, para que se vean los pixeles como en Minecraft.
     /// Devuelve el color y la opacidad (`None` si la imagen es toda opaca).
     pub fn sample(&self, u: f32, v: f32) -> (Color, Option<f32>) {

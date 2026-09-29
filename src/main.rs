@@ -8,6 +8,7 @@ mod image_io;
 mod inflate;
 mod light;
 mod math;
+mod normal_map;
 mod ray_intersect;
 mod render;
 mod scene;

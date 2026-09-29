@@ -1,6 +1,7 @@
 use crate::math::Vec3;
 
 use crate::color::Color;
+use crate::normal_map::NormalMap;
 use crate::texture::Texture;
 
 /// Como una superficie responde a la luz.
@@ -24,6 +25,8 @@ pub struct Material {
     /// Cuanto se dobla la luz al atravesar el material (aire 1.0, agua 1.33, vidrio 1.5).
     /// Solo importa si `transparency` es mayor que 0.
     pub refractive_index: f32,
+    /// Relieve de la superficie: cambia la normal punto por punto (`None` = cara lisa)
+    pub normal_map: Option<NormalMap>,
 }
 
 impl Material {
@@ -37,6 +40,7 @@ impl Material {
             transparency: 0.0,
             reflectivity: 0.0,
             refractive_index: 1.0,
+            normal_map: None,
         }
     }
 
@@ -78,6 +82,10 @@ pub struct Intersect {
     pub u: f32,
     pub v: f32,
     pub face: Face,
+    /// Direcciones en el mundo hacia donde crecen u y v sobre la superficie. Con ellas y
+    /// la normal se orienta el mapa normal de la cara.
+    pub tangent: Vec3,
+    pub bitangent: Vec3,
 }
 
 impl Intersect {
@@ -91,12 +99,19 @@ impl Intersect {
             u,
             v,
             face: Face::Side,
+            tangent: Vec3::zeros(),
+            bitangent: Vec3::zeros(),
         }
     }
 
-    /// El mismo impacto, pero sobre la cara indicada
-    pub fn on_face(self, face: Face) -> Self {
-        Intersect { face, ..self }
+    /// El mismo impacto, sobre la cara indicada y con sus direcciones de u y v
+    pub fn on_face(self, face: Face, tangent: Vec3, bitangent: Vec3) -> Self {
+        Intersect {
+            face,
+            tangent,
+            bitangent,
+            ..self
+        }
     }
 
     pub fn empty() -> Self {
@@ -109,6 +124,8 @@ impl Intersect {
             u: 0.0,
             v: 0.0,
             face: Face::Side,
+            tangent: Vec3::zeros(),
+            bitangent: Vec3::zeros(),
         }
     }
 }
