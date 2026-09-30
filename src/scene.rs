@@ -1,6 +1,4 @@
-//! Los dos mundos del diorama: la mina y el Nether al otro lado del portal. Cada uno tiene
-//! sus bloques, la vista inicial de la camara, el lugar de su portal y uno o mas horarios
-//! (la mina se puede ver de dia, al atardecer y de noche).
+//! The two worlds of the diorama: the mine and the Nether across the portal
 
 use crate::blocks::Blocks;
 use crate::camera::Camera;
@@ -14,29 +12,26 @@ use crate::render::Scene;
 use crate::skybox::{Skybox, SkyStyle, ATARDECER, DIA, NOCHE};
 use crate::voxel::VoxelWorld;
 
-// Centro de la isla, alrededor del cual orbita la camara (igual en los dos mundos)
+// Island center the camera orbits around (same in both worlds)
 const CENTRO: Vec3 = Vec3::new(-0.5, -3.0, -0.5);
 
-// El sol y la luna estan lejos para que sus rayos lleguen casi paralelos a toda la isla
+// The sun and moon are far away so their rays reach the island almost parallel
 const DISTANCIA_AL_CIELO: f32 = 150.0;
 
-// Cuanto alumbran los bloques emisivos (por cada unidad de su `emission`) y hasta cuantos
-// bloques de distancia
+// Intensity and range of emissive block light
 const LUZ_EMISIVA: f32 = 2.0;
 const ALCANCE_EMISIVO: f32 = 8.0;
 
-// Lado (en bloques) de los grupos en que se juntan los bloques emisivos para darles una
-// sola luz
+// Side (in blocks) of the groups emissive blocks are merged into, one light each
 const GRUPO_LUCES: f32 = 3.0;
 
-/// Como se ve un mundo a cierta hora: su cielo, sus luces y su luz ambiente
+/// How a world looks at a given time: its sky, lights and ambient light
 pub struct Horario {
     pub nombre: &'static str,
     pub skybox: Skybox,
-    /// Todas las luces: las del cielo (sol o luna y el reflejo del cielo) y las de los
-    /// bloques emisivos
+    /// Sky lights and emissive block lights
     pub lights: Vec<Light>,
-    /// Luz minima que recibe cualquier superficie
+    /// Minimum light any surface receives
     pub ambient: Color,
 }
 
@@ -44,16 +39,16 @@ pub struct Mundo {
     pub nombre: &'static str,
     pub world: VoxelWorld,
     pub horarios: Vec<Horario>,
-    /// Cual de los horarios se esta viendo
+    /// Which time of day is being shown
     pub horario: usize,
-    /// Vista con la que empieza la camara, y a la que vuelve despues de cruzar el portal
+    /// View the camera starts with, and returns to after going through the portal
     pub home: Camera,
-    /// Centro del portal de este mundo (la camara vuela a traves de el para cruzar)
+    /// Center of this world's portal (the camera flies through it to cross)
     pub portal: Vec3,
 }
 
 impl Mundo {
-    /// La escena que se le pasa al render, con el horario actual
+    /// Scene passed to the renderer, with the current time of day
     pub fn scene(&self, normal_maps: bool) -> Scene<'_, VoxelWorld> {
         let horario = &self.horarios[self.horario];
         Scene {
@@ -69,8 +64,7 @@ impl Mundo {
         self.horarios[self.horario].nombre
     }
 
-    /// Pasa al horario siguiente (del ultimo vuelve al primero). Devuelve si cambio algo:
-    /// un mundo con un solo horario se queda igual.
+    /// Moves to the next time of day (wrapping from the last to the first)
     pub fn siguiente_horario(&mut self) -> bool {
         let anterior = self.horario;
         self.horario = (self.horario + 1) % self.horarios.len();
@@ -78,16 +72,14 @@ impl Mundo {
     }
 }
 
-/// La vista inicial: al frente y un poco a la derecha, mirando el corte desde arriba
+/// Initial view: in front and slightly to the right, looking down at the cut
 fn vista_inicial() -> Camera {
     let mut camera = Camera::new(CENTRO, 24.0);
     camera.orbit(0.3, 0.42);
     camera
 }
 
-/// Un horario de la mina: el cielo con su estilo, el sol (o la luna) justo donde se ve en
-/// el cielo, asi las sombras caen del lado contrario, un reflejo del cielo desde el frente
-/// para que el corte no quede negro, y las luces de los bloques emisivos
+/// A mine time of day: sky, sun or moon, sky bounce light and emissive lights
 fn horario_mina(
     nombre: &'static str,
     style: &SkyStyle,
@@ -112,11 +104,7 @@ fn horario_mina(
     }
 }
 
-/// La mina, en tres horarios:
-/// - Atardecer (el inicial): sol naranja, bajo y a la izquierda. La superficie queda dorada
-///   y el interior de la mina a oscuras, alumbrado por la lava y la glowstone.
-/// - Noche: la luna, fria y debil. Casi todo lo alumbran los bloques emisivos.
-/// - Dia: sol blanco y alto, todo bien iluminado.
+/// The mine at three times of day: sunset (the initial one), night and day
 pub fn superficie(b: &Blocks) -> Mundo {
     let world = VoxelWorld::new(&mina(b));
     let emisivas = luces_emisivas(&world);
@@ -161,9 +149,7 @@ pub fn superficie(b: &Blocks) -> Mundo {
     }
 }
 
-/// El Nether. No hay sol ni horas: lo alumbran la lava, la glowstone, el magma y la
-/// shroomlight, mas un resplandor rojizo desde arriba (el techo del Nether reflejando la
-/// lava) y otro mas debil desde el frente.
+/// The Nether
 pub fn inframundo(b: &Blocks) -> Mundo {
     let world = VoxelWorld::new(&nether(b));
 
@@ -188,13 +174,7 @@ pub fn inframundo(b: &Blocks) -> Mundo {
     }
 }
 
-/// Una luz por cada grupo de bloques emisivos iguales y cercanos.
-///
-/// Poner una luz por bloque haria que un lago de lava de 60 bloques cueste como 60 luces
-/// en cada punto de la escena. Los bloques se agrupan por material en cubos de
-/// `GRUPO_LUCES` bloques de lado, y cada grupo es una sola luz en su centro que suma la
-/// intensidad de todos: desde lejos ilumina igual, y cuesta mucho menos. Los bloques
-/// enterrados (sin ninguna cara al aire) no alumbran nada y se ignoran.
+/// One light per group of identical nearby emissive blocks
 fn luces_emisivas(world: &VoxelWorld) -> Vec<Light> {
     let mut groups: Vec<([i32; 3], Material, Vec<Vec3>)> = Vec::new();
     for (center, material) in world.emissive_blocks() {
@@ -208,8 +188,7 @@ fn luces_emisivas(world: &VoxelWorld) -> Vec<Light> {
     groups
         .into_iter()
         .map(|(_, material, centers)| {
-            // La luz tiene el color promedio de la textura del bloque (naranja en la lava,
-            // amarillo en la glowstone), llevado a que su canal mas fuerte valga 1
+            // Average texture color, with its strongest channel at 1
             let c = material.texture.average_color();
             let color = c * (1.0 / c.r.max(c.g).max(c.b).max(1e-3));
             let intensity = LUZ_EMISIVA * material.emission;

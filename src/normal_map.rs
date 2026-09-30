@@ -1,39 +1,26 @@
-//! Mapas normales: le dan relieve a una cara plana cambiando la normal punto por punto,
-//! sin agregar geometria. La luz, el brillo y los reflejos usan esa normal, asi las juntas
-//! de la piedra o las vetas de la madera se ven hundidas o salidas segun de donde llega la
-//! luz.
-//!
-//! Minecraft no trae mapas normales, asi que se generan a partir de cada textura: el brillo
-//! de cada pixel se toma como altura (lo claro sobresale, lo oscuro se hunde) y la
-//! pendiente de esa altura inclina la normal.
+//! Normal maps generated from the brightness of each texture
 
 use crate::math::{normalize, Vec3};
 use crate::ray_intersect::{Face, Intersect};
 use crate::texture::{ImageTexture, Texture};
 
-/// Normales de una imagen en el espacio de la cara: `x` apunta hacia donde crece u, `y`
-/// hacia donde crece v, y `z` hacia afuera de la superficie
+/// Normals in face space: x along u, y along v, z pointing out
 #[derive(Debug, PartialEq)]
 pub struct NormalImage {
     width: usize,
     height: usize,
     normals: Vec<Vec3>,
-    /// Si al leer se mezclan los pixeles vecinos (ondas suaves, como el agua) o se usa el
-    /// pixel mas cercano (relieve de pixeles, como la piedra)
+    /// Blend neighboring pixels when sampling (water) or use the nearest one (stone)
     smooth: bool,
 }
 
 impl NormalImage {
-    /// Mapa normal a partir del brillo de la imagen. `strength` es cuanto relieve tiene:
-    /// 0 deja la cara plana y valores mas altos exageran las pendientes.
+    /// Normal map from the image brightness
     pub fn from_height(image: &ImageTexture, strength: f32) -> &'static NormalImage {
         NormalImage::build(image, strength, 0)
     }
 
-    /// Como `from_height`, pero con la altura desenfocada (promediando los pixeles hasta
-    /// `blur` de distancia) y leyendo el mapa suavizado. Sirve para superficies como el
-    /// agua: el detalle pixel a pixel de su textura daria un ruido que, al reflejar y
-    /// refractar, se ve como un mosaico; desenfocado quedan ondas amplias y suaves.
+    /// Like `from_height`, but blurred and smooth, for water
     pub fn from_height_smooth(
         image: &ImageTexture,
         strength: f32,
@@ -45,13 +32,12 @@ impl NormalImage {
     fn build(image: &ImageTexture, strength: f32, blur: usize) -> &'static NormalImage {
         let (width, height) = (image.width(), image.height());
 
-        // Altura de cada pixel (su brillo), desenfocada si hace falta. Las coordenadas dan
-        // la vuelta en los bordes porque las texturas se repiten sin costura.
+        // Height of each pixel (its brightness), blurred if needed
         let mut heights: Vec<f32> = (0..width * height)
             .map(|i| image.luminance((i % width) as isize, (i / width) as isize))
             .collect();
         if blur > 0 {
-            // Dos pasadas de promedio dan una curva mas redonda que una sola
+            // Two averaging passes give a rounder curve than one
             for _ in 0..2 {
                 heights = box_blur(&heights, width, height, blur);
             }
@@ -65,14 +51,13 @@ impl NormalImage {
         let mut normals = Vec::with_capacity(width * height);
         for y in 0..height {
             for x in 0..width {
-                // Filtro de Sobel: la pendiente en cada eje mira los 3 vecinos de cada lado,
-                // con mas peso al del medio, asi un pixel suelto no genera un pico
+                // Sobel filter: slope on each axis from the neighbors on each side
                 let du = (h(x, y, 1, -1) + 2.0 * h(x, y, 1, 0) + h(x, y, 1, 1))
                     - (h(x, y, -1, -1) + 2.0 * h(x, y, -1, 0) + h(x, y, -1, 1));
                 let dv = (h(x, y, -1, 1) + 2.0 * h(x, y, 0, 1) + h(x, y, 1, 1))
                     - (h(x, y, -1, -1) + 2.0 * h(x, y, 0, -1) + h(x, y, 1, -1));
 
-                // Si la altura sube hacia +u, la superficie mira hacia -u
+                // If the height rises toward +u, the surface faces -u
                 normals.push(normalize(&Vec3::new(-du * strength, -dv * strength, 1.0)));
             }
         }
@@ -85,10 +70,7 @@ impl NormalImage {
         }))
     }
 
-    /// Normal en el punto (u, v). En un mapa normal comun es la del pixel mas cercano,
-    /// igual que la textura, para que el relieve siga a los pixeles de Minecraft. En uno
-    /// suave se mezclan los 4 pixeles mas cercanos, para que las ondas no se vean en
-    /// escalones.
+    /// Normal at point (u, v)
     fn sample(&self, u: f32, v: f32) -> Vec3 {
         let (w, h) = (self.width, self.height);
         if !self.smooth {
@@ -97,8 +79,6 @@ impl NormalImage {
             return self.normals[y.min(h - 1) * w + x.min(w - 1)];
         }
 
-        // Posicion en pixeles contando desde el centro del primero; da la vuelta en ambos
-        // ejes como la textura
         let x = u.rem_euclid(1.0) * w as f32 - 0.5;
         let y = v.rem_euclid(1.0) * h as f32 - 0.5;
         let (x0, y0) = (x.floor(), y.floor());
@@ -114,8 +94,7 @@ impl NormalImage {
     }
 }
 
-/// Promedio de cada pixel con sus vecinos hasta `radius` de distancia (un cuadrado de
-/// 2 * radius + 1 de lado), dando la vuelta en los bordes
+/// Average of each pixel with its neighbors, wrapping around the edges
 fn box_blur(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
     let r = radius as isize;
     let count = ((2 * r + 1) * (2 * r + 1)) as f32;
@@ -135,8 +114,7 @@ fn box_blur(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f
         .collect()
 }
 
-/// Mapa normal de un material. Igual que su textura, puede ser uno para todas las caras o
-/// uno distinto arriba, a los lados y abajo.
+/// Normal map of a material
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NormalMap {
     Image(&'static NormalImage),
@@ -148,8 +126,7 @@ pub enum NormalMap {
 }
 
 impl NormalMap {
-    /// Genera el mapa normal de cada imagen de la textura. Un color solido no tiene
-    /// relieve, asi que devuelve `None`.
+    /// Generates the normal map of each image of the texture
     pub fn from_texture(texture: &Texture, strength: f32) -> Option<NormalMap> {
         match texture {
             Texture::Image(image) => {
@@ -164,8 +141,7 @@ impl NormalMap {
         }
     }
 
-    /// Mapa normal de ondas suaves para una superficie de una sola imagen, como el agua
-    /// (ver `NormalImage::from_height_smooth`)
+    /// Soft wave normal map, for water
     pub fn smooth_from_texture(
         texture: &Texture,
         strength: f32,
@@ -180,7 +156,7 @@ impl NormalMap {
         }
     }
 
-    /// Normal del mapa en el espacio de la cara
+    /// Normal from the map in face space
     fn sample(&self, u: f32, v: f32, face: Face) -> Vec3 {
         match self {
             NormalMap::Image(image) => image.sample(u, v),
@@ -192,9 +168,7 @@ impl NormalMap {
         }
     }
 
-    /// Normal en el mundo para ese impacto: la del mapa, llevada a la orientacion de la
-    /// cara con su tangente (hacia donde crece u), bitangente (hacia donde crece v) y
-    /// normal
+    /// World normal: the map normal, oriented with the tangent, bitangent and normal
     pub fn perturb(&self, hit: &Intersect) -> Vec3 {
         let n = self.sample(hit.u, hit.v, hit.face);
         normalize(&(hit.tangent * n.x + hit.bitangent * n.y + hit.normal * n.z))
@@ -207,7 +181,7 @@ mod tests {
     use crate::color::Color;
     use crate::math::dot;
 
-    // Imagen de gris con el brillo que da `altura` en cada pixel
+    // Gray image with the brightness given by `altura` at each pixel
     fn imagen(lado: usize, altura: impl Fn(usize, usize) -> u8) -> &'static ImageTexture {
         let mut pixels = Vec::new();
         for y in 0..lado {
@@ -229,8 +203,7 @@ mod tests {
 
     #[test]
     fn una_loma_inclina_la_normal_hacia_afuera_de_ella() {
-        // Un pixel claro en el centro de una imagen oscura: a su derecha la altura baja
-        // hacia +u, asi que ahi la superficie mira hacia +u; a su izquierda, hacia -u
+        // Around a bright pixel, the surface faces away from it
         let loma = imagen(5, |x, y| if (x, y) == (2, 2) { 255 } else { 0 });
         let mapa = NormalImage::from_height(loma, 1.0);
         let derecha = mapa.normals[2 * 5 + 3];
@@ -239,7 +212,7 @@ mod tests {
 
         assert!(derecha.x > 0.1 && izquierda.x < -0.1);
         assert!(abajo.y > 0.1);
-        // Todas siguen mirando hacia afuera de la cara
+        // They all still face out of the face
         assert!(derecha.z > 0.0 && izquierda.z > 0.0);
     }
 
@@ -253,12 +226,12 @@ mod tests {
 
     #[test]
     fn el_mapa_suave_cambia_de_a_poco_entre_pixeles_vecinos() {
-        // Ruido irregular pixel a pixel, como el de la textura del agua
+        // Irregular per-pixel noise, like the water texture
         let ruido = imagen(8, |x, y| ((x * 7 + y * 13 + x * y) % 5 * 60) as u8);
         let comun = NormalImage::from_height(ruido, 1.0);
         let suave = NormalImage::from_height_smooth(ruido, 1.0, 2);
 
-        // Cuanto cambia la normal al moverse un poquito dentro de la cara
+        // How much the normal changes when moving slightly across the face
         let salto = |mapa: &NormalImage| {
             (0..64)
                 .map(|i| {
@@ -268,13 +241,13 @@ mod tests {
                 .fold(0.0, f32::max)
         };
         assert!(salto(suave) < salto(comun) * 0.5 + 1e-6);
-        // Y el suave no tiene saltos bruscos
+        // And the smooth one has no sudden jumps
         assert!(salto(suave) < 0.2, "{}", salto(suave));
     }
 
     #[test]
     fn la_normal_del_mapa_se_orienta_con_la_cara() {
-        // Cara que mira hacia +Z, con u creciendo hacia +X y v hacia -Y
+        // Face looking toward +Z, with u growing toward +X and v toward -Y
         let rampa = imagen(3, |x, _| (x * 100) as u8);
         let mapa = NormalMap::Image(NormalImage::from_height(rampa, 2.0));
         let mut hit = Intersect::empty();
@@ -285,7 +258,7 @@ mod tests {
         hit.v = 0.5;
 
         let n = mapa.perturb(&hit);
-        // La imagen se aclara hacia +u (+X), asi que la normal se inclina hacia -X
+        // The image gets brighter toward +u (+X), so the normal tilts toward -X
         assert!(n.x < -0.1, "{n:?}");
         assert!((n.norm() - 1.0).abs() < 1e-5 && dot(&n, &hit.normal) > 0.0);
     }

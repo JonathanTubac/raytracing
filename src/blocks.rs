@@ -1,13 +1,11 @@
-//! Bloques de Minecraft: cada uno es un material con su propia textura (la original del
-//! juego, en assets/textures) y sus propios parametros de albedo, especular, transparencia
-//! y reflectividad.
+//! Minecraft blocks: each one with its own texture and parameters
 
 use crate::color::Color;
 use crate::normal_map::NormalMap;
 use crate::ray_intersect::Material;
 use crate::texture::{ImageTexture, Texture};
 
-// Colores con los que Minecraft tine las texturas grises en un bioma de llanura
+// Colors Minecraft uses to tint its gray textures in a plains biome
 const TINTE_PASTO: Color = Color::new(145, 189, 89);
 const TINTE_HOJAS: Color = Color::new(119, 171, 47);
 const TINTE_AGUA: Color = Color::new(63, 118, 228);
@@ -20,9 +18,7 @@ fn textura_tenida(nombre: &str, tinte: Color) -> &'static ImageTexture {
     ImageTexture::load_tinted(&ruta(nombre), tinte)
 }
 
-/// El mismo material con un mapa normal generado de su propia textura. `fuerza` es cuanto
-/// relieve tiene: poco para superficies casi lisas (arena, metal pulido) y mucho para las
-/// muy rugosas (piedra labrada).
+/// The same material with a normal map generated from its own texture
 fn con_relieve(material: Material, fuerza: f32) -> Material {
     Material {
         normal_map: NormalMap::from_texture(&material.texture, fuerza),
@@ -34,8 +30,7 @@ fn ruta(nombre: &str) -> String {
     format!("{}/assets/textures/{nombre}.png", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Todos los bloques del diorama. Cada textura se carga una sola vez aunque el bloque se
-/// repita cientos de veces: los materiales solo guardan una referencia a ella.
+/// Every block in the diorama
 #[derive(Clone, Copy)]
 pub struct Blocks {
     pub grass: Material,
@@ -87,7 +82,7 @@ impl Blocks {
         let dirt_texture = textura("dirt");
 
         let b = Blocks {
-            // Pasto: verde arriba, tierra abajo y tierra con borde verde a los lados. Mate.
+            // Grass: green on top, dirt below and dirt with a green edge on the sides. Matte.
             grass: Material {
                 albedo: [0.95, 0.05],
                 specular: 8.0,
@@ -98,34 +93,34 @@ impl Blocks {
                 })
             },
 
-            // Tierra: totalmente mate
+            // Dirt: fully matte
             dirt: Material {
                 albedo: [1.0, 0.0],
                 ..Material::new(Texture::Image(dirt_texture))
             },
 
-            // Piedra: mate con un brillo muy leve
+            // Stone: matte with a very faint shine
             stone: Material {
                 albedo: [0.9, 0.1],
                 specular: 20.0,
                 ..Material::new(Texture::Image(textura("stone")))
             },
 
-            // Piedra labrada: como la piedra pero mas rugosa, casi sin brillo
+            // Cobblestone: like stone but rougher, almost no shine
             cobblestone: Material {
                 albedo: [0.95, 0.05],
                 specular: 12.0,
                 ..Material::new(Texture::Image(textura("cobblestone")))
             },
 
-            // Tablones de roble: madera barnizada, brillo suave
+            // Oak planks: varnished wood, soft shine
             planks: Material {
                 albedo: [0.85, 0.15],
                 specular: 25.0,
                 ..Material::new(Texture::Image(textura("oak_planks")))
             },
 
-            // Tronco de roble: corteza a los lados y los anillos arriba y abajo
+            // Oak log: bark on the sides and rings on top and bottom
             log: Material {
                 albedo: [0.95, 0.05],
                 specular: 10.0,
@@ -136,15 +131,14 @@ impl Blocks {
                 })
             },
 
-            // Hojas: opacas, pero la textura tiene huecos por donde se ve y pasa la luz
+            // Leaves: opaque, but the texture has holes that you can see and light through
             leaves: Material {
                 albedo: [0.9, 0.1],
                 specular: 15.0,
                 ..Material::new(Texture::Image(textura_tenida("oak_leaves", TINTE_HOJAS)))
             },
 
-            // Vidrio: marco opaco y centro transparente que dobla la luz (indice 1.5),
-            // con un reflejo leve y un brillo fuerte y concentrado
+            // Glass: opaque frame and a transparent center that bends light (index 1.5)
             glass: Material {
                 albedo: [0.8, 0.6],
                 specular: 150.0,
@@ -154,7 +148,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("glass")))
             },
 
-            // Agua: azul, deja ver el fondo doblado (indice 1.33) y refleja el cielo
+            // Water: blue, shows the bottom bent (index 1.33) and reflects the sky
             water: Material {
                 albedo: [0.35, 0.5],
                 specular: 90.0,
@@ -164,21 +158,20 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura_tenida("water_still", TINTE_AGUA)))
             },
 
-            // Arena: mate
+            // Sand: matte
             sand: Material {
                 albedo: [1.0, 0.0],
                 ..Material::new(Texture::Image(textura("sand")))
             },
 
-            // Piedra luminosa: emite luz calida propia y alumbra lo que tiene alrededor.
-            // Casi no refleja la luz de afuera, porque su propio brillo la tapa.
+            // Glowstone: emits its own warm light and lights up its surroundings
             glowstone: Material {
                 albedo: [0.4, 0.0],
                 emission: 0.9,
                 ..Material::new(Texture::Image(textura("glowstone")))
             },
 
-            // Linterna marina: emite una luz fria, casi blanca, y es algo pulida
+            // Sea lantern: emits a cold, almost white light, and is somewhat polished
             sea_lantern: Material {
                 albedo: [0.4, 0.3],
                 specular: 60.0,
@@ -187,7 +180,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("sea_lantern")))
             },
 
-            // Diamante: pulido, refleja bastante y tiene un brillo chiquito y fuerte
+            // Diamond: polished, quite reflective, with a small and strong highlight
             diamond: Material {
                 albedo: [0.7, 0.6],
                 specular: 250.0,
@@ -195,7 +188,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("diamond_block")))
             },
 
-            // Oro: metal, refleja y brilla con un brillo mas amplio que el diamante
+            // Gold: metal, reflective, with a wider highlight than diamond
             gold: Material {
                 albedo: [0.7, 0.8],
                 specular: 120.0,
@@ -203,7 +196,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("gold_block")))
             },
 
-            // Obsidiana: casi negra y lisa como vidrio volcanico, refleja lo que tiene cerca
+            // Obsidian: almost black and smooth like volcanic glass, reflects what is nearby
             obsidian: Material {
                 albedo: [0.8, 0.7],
                 specular: 400.0,
@@ -211,13 +204,13 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("obsidian")))
             },
 
-            // Bedrock: la base de la isla. Mate y aspero.
+            // Bedrock: the base of the island. Matte and rough.
             bedrock: Material {
                 albedo: [1.0, 0.0],
                 ..Material::new(Texture::Image(textura("bedrock")))
             },
 
-            // Deepslate: la piedra oscura de lo profundo, con vetas distintas arriba y al lado
+            // Deepslate: the dark stone of the depths, with different veins on top and sides
             deepslate: Material {
                 albedo: [0.92, 0.08],
                 specular: 18.0,
@@ -228,14 +221,13 @@ impl Blocks {
                 })
             },
 
-            // Grava: el fondo del estanque subterraneo, mate
+            // Gravel: the bottom of the underground pool, matte
             gravel: Material {
                 albedo: [1.0, 0.0],
                 ..Material::new(Texture::Image(textura("gravel")))
             },
 
-            // Minerales: la piedra con vetas. Los metales y el diamante tienen un brillo
-            // chiquito y fuerte, como si las vetas destellaran con la luz.
+            // Ores: stone with veins
             coal_ore: Material {
                 albedo: [0.92, 0.08],
                 specular: 20.0,
@@ -267,7 +259,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("deepslate_diamond_ore")))
             },
 
-            // Amatista: cristal de una geoda. Muy brillante y refleja un poco lo que la rodea.
+            // Amethyst: geode crystal. Very shiny and slightly reflective.
             amethyst: Material {
                 albedo: [0.75, 0.6],
                 specular: 180.0,
@@ -275,8 +267,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("amethyst_block")))
             },
 
-            // Lava: emite una luz naranja fuerte que alumbra la caverna. Casi no refleja la
-            // luz de afuera porque su propio brillo la tapa.
+            // Lava: emits a strong orange light that lights up the cave
             lava: Material {
                 albedo: [0.3, 0.15],
                 specular: 30.0,
@@ -284,8 +275,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("lava_still")))
             },
 
-            // Portal al Nether: una cortina morada translucida que brilla con luz propia.
-            // No dobla la luz (indice 1): se ve el otro lado tenido de morado.
+            // Nether portal: a translucent purple curtain that glows with its own light
             nether_portal: Material {
                 albedo: [0.6, 0.3],
                 specular: 60.0,
@@ -295,27 +285,27 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("nether_portal")))
             },
 
-            // Netherrack: la roca rojiza del Nether, aspera y mate
+            // Netherrack: the reddish rock of the Nether, rough and matte
             netherrack: Material {
                 albedo: [0.95, 0.05],
                 specular: 10.0,
                 ..Material::new(Texture::Image(textura("netherrack")))
             },
 
-            // Ladrillos del Nether: los de las fortalezas, oscuros y con algo de brillo
+            // Nether bricks: the fortress ones, dark and slightly shiny
             nether_bricks: Material {
                 albedo: [0.85, 0.2],
                 specular: 40.0,
                 ..Material::new(Texture::Image(textura("nether_bricks")))
             },
 
-            // Arena de almas: mate, se ven las caras de las almas
+            // Soul sand: matte, the souls' faces show
             soul_sand: Material {
                 albedo: [1.0, 0.0],
                 ..Material::new(Texture::Image(textura("soul_sand")))
             },
 
-            // Basalto: columnas de roca volcanica, con vetas verticales a los lados
+            // Basalt: volcanic rock columns, with vertical veins on the sides
             basalt: Material {
                 albedo: [0.85, 0.2],
                 specular: 35.0,
@@ -326,7 +316,7 @@ impl Blocks {
                 })
             },
 
-            // Piedra negra: la base de la isla, oscura y algo pulida
+            // Blackstone: the base of the island, dark and somewhat polished
             blackstone: Material {
                 albedo: [0.85, 0.25],
                 specular: 50.0,
@@ -337,7 +327,7 @@ impl Blocks {
                 })
             },
 
-            // Nylium carmesi: el "pasto" del bosque carmesi, sobre netherrack
+            // Crimson nylium: the "grass" of the crimson forest, over netherrack
             crimson_nylium: Material {
                 albedo: [0.95, 0.05],
                 specular: 8.0,
@@ -348,7 +338,7 @@ impl Blocks {
                 })
             },
 
-            // Tallo carmesi: el tronco de los hongos gigantes
+            // Crimson stem: the trunk of the huge fungi
             crimson_stem: Material {
                 albedo: [0.9, 0.1],
                 specular: 15.0,
@@ -359,21 +349,21 @@ impl Blocks {
                 })
             },
 
-            // Bloque de verruga: el sombrero de los hongos, carnoso y un poco brillante
+            // Nether wart block: the fungus cap, fleshy and slightly shiny
             nether_wart: Material {
                 albedo: [0.85, 0.2],
                 specular: 25.0,
                 ..Material::new(Texture::Image(textura("nether_wart_block")))
             },
 
-            // Shroomlight: la luz que cuelga de los hongos carmesi, calida y emisiva
+            // Shroomlight: the warm, emissive light hanging from crimson fungi
             shroomlight: Material {
                 albedo: [0.4, 0.1],
                 emission: 1.0,
                 ..Material::new(Texture::Image(textura("shroomlight")))
             },
 
-            // Magma: roca con grietas de lava que brillan un poco
+            // Magma: rock with faintly glowing lava cracks
             magma: Material {
                 albedo: [0.7, 0.2],
                 specular: 30.0,
@@ -381,7 +371,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("magma")))
             },
 
-            // Cuarzo y oro del Nether: vetas claras que destellan
+            // Nether quartz and gold: bright veins that sparkle
             quartz_ore: Material {
                 albedo: [0.85, 0.5],
                 specular: 150.0,
@@ -393,7 +383,7 @@ impl Blocks {
                 ..Material::new(Texture::Image(textura("nether_gold_ore")))
             },
 
-            // Ancient debris: el mineral mas raro, muy duro, con un brillo metalico apagado
+            // Ancient debris: the rarest ore, very hard, with a dull metallic shine
             ancient_debris: Material {
                 albedo: [0.8, 0.4],
                 specular: 70.0,
@@ -405,7 +395,7 @@ impl Blocks {
                 })
             },
 
-            // Obsidiana llorona: obsidiana con lagrimas moradas que brillan, lisa y reflectiva
+            // Crying obsidian: obsidian with glowing purple tears, smooth and reflective
             crying_obsidian: Material {
                 albedo: [0.7, 0.6],
                 specular: 300.0,
@@ -415,9 +405,7 @@ impl Blocks {
             },
         };
 
-        // Relieve de cada bloque. El vidrio queda liso: su textura es casi toda
-        // transparente y el relieve solo ensuciaria lo que se ve a traves. La piedra
-        // luminosa tambien: da luz propia, y una superficie que brilla no muestra relieve.
+        // Relief of each block
         Blocks {
             grass: con_relieve(b.grass, 0.8),
             dirt: con_relieve(b.dirt, 1.5),
@@ -426,10 +414,7 @@ impl Blocks {
             planks: con_relieve(b.planks, 2.0),
             log: con_relieve(b.log, 2.5),
             leaves: con_relieve(b.leaves, 1.0),
-            // En el agua el relieve son ondas suaves: dobla distinto la luz que la atraviesa
-            // y la que refleja, asi el fondo y el cielo se ven ondulados. Se desenfoca la
-            // textura antes de sacar el relieve; con el detalle pixel a pixel el agua se
-            // veia como un mosaico de reflejos sueltos.
+            // Water: soft waves, taken from the blurred texture
             water: Material {
                 normal_map: NormalMap::smooth_from_texture(&b.water.texture, 3.0, 2),
                 ..b.water

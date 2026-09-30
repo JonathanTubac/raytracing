@@ -1,31 +1,23 @@
 use crate::color::Color;
 use crate::math::Vec3;
 
-/// Luz puntual: ilumina desde `position` con el color `color` y una fuerza `intensity`
-/// (1.0 = normal).
-///
-/// Hay dos tipos: el sol, que no se debilita con la distancia (`range` infinito), y las
-/// luces de los bloques emisivos, que salen de uno o varios bloques vecinos y solo alumbran
-/// hasta `range` bloques de distancia.
+/// Point light with position, color and intensity
 #[derive(Clone, Copy)]
 pub struct Light {
     pub position: Vec3,
     pub color: Color,
     pub intensity: f32,
-    /// Hasta donde llega la luz. Mas alla no aporta nada.
+    /// How far the light reaches. Beyond that it adds nothing.
     pub range: f32,
-    /// Caja (esquina minima y maxima) que ocupan los bloques que emiten la luz, o `None`
-    /// si no sale de bloques, como el sol
+    /// Box of the blocks that emit the light (`None` for the sun)
     pub bounds: Option<(Vec3, Vec3)>,
 }
 
-// Que tan rapido se debilita la luz de un bloque: a distancia d llega
-// intensity / (1 + CAIDA * d^2), como una luz real que se reparte en una esfera cada vez
-// mas grande
+// A block light reaches distance d as intensity / (1 + CAIDA * d^2)
 const CAIDA: f32 = 0.5;
 
 impl Light {
-    /// Luz que alumbra igual a cualquier distancia, como el sol
+    /// Light that is equally strong at any distance, like the sun
     pub fn new(position: Vec3, color: Color, intensity: f32) -> Self {
         Light {
             position,
@@ -36,17 +28,13 @@ impl Light {
         }
     }
 
-    /// Luz que sale de un bloque emisivo de lado 1 con centro en `center`, y alumbra hasta
-    /// `range` bloques de distancia
+    /// Light from a single emissive block
     #[cfg(test)]
     pub fn from_block(center: Vec3, color: Color, intensity: f32, range: f32) -> Self {
         Light::from_blocks(&[center], color, intensity, range)
     }
 
-    /// Una sola luz para un grupo de bloques emisivos vecinos (varios bloques de una poza
-    /// de lava, por ejemplo), cada uno con intensidad `intensity`. La luz queda en el
-    /// centro del grupo y con la suma de sus intensidades: vista desde lejos es igual a
-    /// tener una luz por bloque, pero cuesta como una sola.
+    /// A single light for a group of neighboring emissive blocks, with their intensities added up
     pub fn from_blocks(centers: &[Vec3], color: Color, intensity: f32, range: f32) -> Self {
         let half = Vec3::new(0.5, 0.5, 0.5);
         let mut min = centers[0] - half;
@@ -69,8 +57,7 @@ impl Light {
         }
     }
 
-    /// Que parte de la intensidad llega a esa distancia: 1 para el sol y menos de 1 para
-    /// las luces de bloque, hasta llegar a 0 justo en `range`
+    /// Fraction of the intensity that reaches that distance (1 for the sun, 0 beyond `range`)
     pub fn attenuation(&self, distance: f32) -> f32 {
         if !self.range.is_finite() {
             return 1.0;
@@ -79,14 +66,12 @@ impl Light {
         if x >= 1.0 {
             return 0.0;
         }
-        // La ventana baja suave hasta 0 en el alcance; sin ella la luz se cortaria de golpe
-        // y se veria un circulo marcado alrededor de cada bloque
+        // Smooth window down to 0 at the range, so the light doesn't cut off abruptly
         let window = (1.0 - x * x * x * x).powi(2);
         window / (1.0 + CAIDA * distance * distance)
     }
 
-    /// Si el punto esta sobre (o dentro de) los bloques que emiten la luz. Un rayo de
-    /// sombra que llega ahi ya llego a la luz: los bloques no se tapan a si mismos.
+    /// Whether the point is on (or inside) the blocks that emit the light
     pub fn contains(&self, point: &Vec3) -> bool {
         let Some((min, max)) = self.bounds else {
             return false;
@@ -149,7 +134,7 @@ mod tests {
 
         assert!((poza.position - Vec3::new(1.0, 0.0, 0.25)).norm() < 1e-6);
         assert!((poza.intensity - 2.0).abs() < 1e-6);
-        // Toca cualquiera de los bloques del grupo, no solo el del centro
+        // It touches any block of the group, not only the center one
         assert!(poza.contains(&Vec3::new(2.5, 0.0, 0.0)));
         assert!(poza.contains(&Vec3::new(-0.5, 0.3, 0.0)));
         assert!(!poza.contains(&Vec3::new(3.2, 0.0, 0.0)));

@@ -1,6 +1,6 @@
 use crate::image_io::save_png;
 
-/// Pixeles de la imagen en formato 0xRRGGBB, fila por fila de arriba hacia abajo
+/// Image pixels in 0xRRGGBB format, row by row from top to bottom
 pub struct Framebuffer {
     pub width: usize,
     pub height: usize,
@@ -24,13 +24,28 @@ impl Framebuffer {
         &self.buffer
     }
 
-    /// Acceso directo a los pixeles, para que el render escriba cada fila desde su hilo
+    /// Paints a pixel (0xRRGGBB); does nothing if it is outside the image
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: u32) {
+        if x < self.width && y < self.height {
+            self.buffer[y * self.width + x] = color;
+        }
+    }
+
+    /// Pixels as consecutive RGB bytes, the raw format ffmpeg reads
+    pub fn to_rgb24(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.buffer.len() * 3);
+        for &color in &self.buffer {
+            bytes.extend_from_slice(&[(color >> 16) as u8, (color >> 8) as u8, color as u8]);
+        }
+        bytes
+    }
+
+    /// Direct pixel access, so the renderer can write each row from its thread
     pub fn buffer_mut(&mut self) -> &mut [u32] {
         &mut self.buffer
     }
 
-    /// Mezcla la imagen con el remolino morado de un portal del Nether. `amount` es cuanto
-    /// lo tapa (0 = nada, 1 = todo) y `time` hace girar el remolino.
+    /// Blends the image with the purple swirl of a Nether portal
     pub fn portal_swirl(&mut self, amount: f32, time: f32) {
         if amount <= 0.0 {
             return;
@@ -43,7 +58,7 @@ impl Framebuffer {
             let dy = ((i / self.width) as f32 - cy) * scale;
             let radius = (dx * dx + dy * dy).sqrt();
 
-            // Bandas en espiral que giran con el tiempo
+            // Spiral bands that turn over time
             let angle = dy.atan2(dx);
             let s = 0.5 + 0.5 * (angle * 3.0 + radius * 9.0 - time * 5.0).sin();
             let purple = [0.35 + 0.3 * s, 0.05 + 0.12 * s, 0.6 + 0.35 * s];

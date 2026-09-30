@@ -2,11 +2,10 @@ use crate::math::{cross, normalize, Vec3};
 
 const DISTANCIA_MIN: f32 = 1.0;
 const DISTANCIA_MAX: f32 = 60.0;
-// Limite del angulo vertical para no llegar a mirar justo desde arriba/abajo,
-// donde la direccion "arriba" de la camara se vuelve indefinida
+// Vertical angle limit, so the camera never looks straight down or up
 const PITCH_MAX: f32 = 1.5;
 
-/// Camara orbital: siempre mira a `center` y se mueve sobre una esfera a su alrededor.
+/// Orbit camera: always looks at `center` and moves on a sphere around it.
 #[derive(Clone, Copy)]
 pub struct Camera {
     pub center: Vec3,
@@ -25,7 +24,7 @@ impl Camera {
         }
     }
 
-    /// Posicion de la camara en el mundo
+    /// Camera position in the world
     pub fn eye(&self) -> Vec3 {
         let offset = Vec3::new(
             self.pitch.cos() * self.yaw.sin(),
@@ -35,19 +34,18 @@ impl Camera {
         self.center + offset * self.distance
     }
 
-    /// Rota la camara alrededor del centro (en radianes)
+    /// Rotates the camera around the center (in radians)
     pub fn orbit(&mut self, delta_yaw: f32, delta_pitch: f32) {
         self.yaw += delta_yaw;
         self.pitch = (self.pitch + delta_pitch).clamp(-PITCH_MAX, PITCH_MAX);
     }
 
-    /// Acerca (factor < 1) o aleja (factor > 1) la camara del centro
+    /// Moves the camera closer (factor < 1) or farther (factor > 1) from the center
     pub fn zoom(&mut self, factor: f32) {
         self.distance = (self.distance * factor).clamp(DISTANCIA_MIN, DISTANCIA_MAX);
     }
 
-    /// Los ejes de la camara en el mundo. Se calculan una vez por cuadro y no una vez por
-    /// pixel, porque dependen de senos, cosenos y productos cruz que no cambian entre pixeles.
+    /// Camera axes in world space
     pub fn basis(&self) -> CameraBasis {
         let forward = normalize(&(self.center - self.eye()));
         let right = normalize(&cross(&forward, &Vec3::new(0.0, 1.0, 0.0)));
@@ -63,7 +61,7 @@ pub struct CameraBasis {
 }
 
 impl CameraBasis {
-    /// Convierte un vector del espacio de la camara (mirando hacia -Z) al espacio del mundo
+    /// Converts a vector from camera space (looking down -Z) to world space
     pub fn to_world(&self, vector: &Vec3) -> Vec3 {
         vector.x * self.right + vector.y * self.up - vector.z * self.forward
     }
@@ -82,7 +80,7 @@ mod tests {
         let camera = Camera::new(Vec3::new(0.0, 0.0, -5.0), 5.0);
 
         assert!(cerca(&camera.eye(), &Vec3::zeros()));
-        // Sin rotar, la base de la camara es la del mundo
+        // Without rotation, the camera basis is the world basis
         let base = camera.basis();
         for eje in [
             Vec3::new(0.0, 0.0, -1.0),

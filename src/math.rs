@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Index, IndexMut, Mul, Neg, Sub};
 
-/// Vector de 3 componentes: posiciones, direcciones y normales
+/// 3 component vector: positions, directions and normals
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vec3 {
     pub x: f32,
@@ -17,12 +17,12 @@ impl Vec3 {
         Vec3::new(0.0, 0.0, 0.0)
     }
 
-    /// Largo del vector
+    /// Vector length
     pub fn norm(&self) -> f32 {
         dot(self, self).sqrt()
     }
 
-    /// Divide componente por componente
+    /// Component-wise division
     pub fn component_div(&self, other: &Vec3) -> Vec3 {
         Vec3::new(self.x / other.x, self.y / other.y, self.z / other.z)
     }
@@ -32,7 +32,7 @@ pub fn dot(a: &Vec3, b: &Vec3) -> f32 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-/// Vector perpendicular a `a` y a `b` (regla de la mano derecha)
+/// Vector perpendicular to `a` and `b` (right-hand rule)
 pub fn cross(a: &Vec3, b: &Vec3) -> Vec3 {
     Vec3::new(
         a.y * b.z - a.z * b.y,
@@ -41,7 +41,7 @@ pub fn cross(a: &Vec3, b: &Vec3) -> Vec3 {
     )
 }
 
-/// Mismo vector con largo 1. El vector cero se deja igual para no generar NaN.
+/// Same vector with length 1. The zero vector is left as is to avoid NaN.
 pub fn normalize(v: &Vec3) -> Vec3 {
     let norm = v.norm();
     if norm > 0.0 { *v * (1.0 / norm) } else { *v }
@@ -77,8 +77,7 @@ impl AddAssign for Vec3 {
     }
 }
 
-// Las operaciones se definen para `Vec3` y `&Vec3` en cualquier combinacion, asi se puede
-// escribir `a + b`, `&a - b`, `2.0 * &n`... sin tener que copiar ni desreferenciar a mano.
+// Operators between `Vec3` and `&Vec3` in any combination
 macro_rules! operaciones_entre_vectores {
     ($($izq:ty, $der:ty);*) => {$(
         impl Add<$der> for $izq {

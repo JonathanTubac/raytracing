@@ -1,28 +1,23 @@
-//! El viaje por el portal: la camara vuela a traves de la puerta de la cabana hasta el
-//! portal, la imagen se funde en el remolino morado del portal, aparece del otro lado
-//! dentro del portal de llegada y se aleja hasta la vista del nuevo mundo.
-//!
-//! Son cuatro etapas. En cada una la camara va de una pose a otra con una curva suave
-//! (arranca y frena despacio), asi el movimiento no se ve mecanico.
+//! Portal trip: the camera goes through the door and the portal into the other world
 
 use std::f32::consts::{PI, TAU};
 
 use crate::camera::Camera;
 use crate::math::Vec3;
 
-// Duracion de cada etapa, en segundos
+// Duration of each stage, in seconds
 const ACERCARSE: f32 = 1.4;
 const ENTRAR: f32 = 1.1;
 const SALIR: f32 = 0.9;
 const ALEJARSE: f32 = 1.6;
 
-// Frente al portal, antes de entrar: a esta distancia, un poco desde arriba
+// In front of the portal before entering: at this distance, slightly from above
 const DISTANCIA_FRENTE: f32 = 7.0;
 const ALTURA_FRENTE: f32 = 0.06;
-// Distancia al centro del portal cuando se lo cruza: la camara queda dentro del portal
+// Distance to the portal center when crossing: the camera ends up inside the portal
 const DISTANCIA_DENTRO: f32 = 0.3;
 
-/// Lo que se interpola de la camara durante el viaje
+/// What is interpolated of the camera during the trip
 #[derive(Clone, Copy)]
 struct Pose {
     center: Vec3,
@@ -41,8 +36,7 @@ impl Pose {
         }
     }
 
-    /// Mirando el portal de frente. Los dos portales se abren hacia +Z, que es la
-    /// direccion en que la camara mira con yaw = 0.
+    /// Looking at the portal head-on
     fn facing(portal: Vec3, distance: f32) -> Pose {
         Pose {
             center: portal,
@@ -59,8 +53,7 @@ impl Pose {
         camera.pitch = self.pitch;
     }
 
-    /// Pose intermedia: `t` = 0 da `a` y `t` = 1 da `b`. El angulo horizontal gira por el
-    /// lado mas corto, para no dar una vuelta entera si la camara ya habia girado mucho.
+    /// Intermediate pose: `t` = 0 gives `a` and `t` = 1 gives `b`
     fn lerp(a: &Pose, b: &Pose, t: f32) -> Pose {
         let mix = |x: f32, y: f32| x + (y - x) * t;
         let yaw_diff = (b.yaw - a.yaw + PI).rem_euclid(TAU) - PI;
@@ -73,7 +66,7 @@ impl Pose {
     }
 }
 
-/// Curva suave de 0 a 1: arranca y termina despacio
+/// Smooth curve from 0 to 1: starts and ends slowly
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -87,20 +80,20 @@ enum Etapa {
     Alejarse,
 }
 
-/// Que hacer despues de avanzar el viaje
+/// What to do after advancing the trip
 #[derive(PartialEq, Debug)]
 pub enum Paso {
     Sigue,
-    /// La camara cruzo el portal: hay que cambiar al otro mundo
+    /// The camera crossed the portal: switch to the other world
     CambiarMundo,
     Termino,
 }
 
 pub struct Viaje {
     etapa: Etapa,
-    /// Segundos desde que empezo la etapa
+    /// Seconds since the stage started
     tiempo: f32,
-    /// Pose de la camara al empezar el viaje
+    /// Camera pose when the trip started
     desde: Pose,
 }
 
@@ -113,9 +106,7 @@ impl Viaje {
         }
     }
 
-    /// Avanza `dt` segundos y mueve la camara. `portal` es el centro del portal del mundo
-    /// en el que se esta (despues de `CambiarMundo`, el del mundo nuevo) y `home` la vista
-    /// inicial de ese mundo.
+    /// Advances `dt` seconds and moves the camera
     pub fn avanzar(&mut self, dt: f32, camera: &mut Camera, portal: Vec3, home: &Camera) -> Paso {
         self.tiempo += dt;
         let frente = Pose::facing(portal, DISTANCIA_FRENTE);
@@ -134,7 +125,7 @@ impl Viaje {
             return Paso::Sigue;
         }
 
-        // Termino la etapa: se pasa a la siguiente
+        // Stage finished: move on to the next one
         self.tiempo = 0.0;
         match self.etapa {
             Etapa::Acercarse => {
@@ -153,8 +144,7 @@ impl Viaje {
         }
     }
 
-    /// Cuanto tapa la pantalla el remolino morado (0 = nada, 1 = todo): aparece en la
-    /// segunda mitad de la entrada y se va en la primera parte de la salida
+    /// How much of the screen the purple swirl covers (0 = nothing, 1 = everything)
     pub fn overlay(&self) -> f32 {
         match self.etapa {
             Etapa::Entrar => ease((self.tiempo / ENTRAR - 0.4) / 0.6),
@@ -191,7 +181,7 @@ mod tests {
                 Paso::Sigue => {}
                 Paso::CambiarMundo => {
                     cambios += 1;
-                    // Justo al cruzar, la camara esta dentro del portal y la pantalla morada
+                    // Right when crossing, the camera is inside the portal and the screen is purple
                     dentro_del_portal = (camera.eye() - portal).norm() < 0.5;
                     portal = portal_b;
                 }
@@ -204,7 +194,7 @@ mod tests {
         assert!((camera.center - home.center).norm() < 1e-4);
         assert!(cerca(camera.distance, home.distance));
         assert!(cerca(camera.pitch, home.pitch));
-        // Mismo angulo, aunque haya dado vueltas de mas o de menos
+        // Same angle, even if it turned extra times
         assert!(cerca(camera.yaw.sin(), home.yaw.sin()) && cerca(camera.yaw.cos(), home.yaw.cos()));
     }
 
@@ -228,7 +218,7 @@ mod tests {
     fn el_giro_va_por_el_lado_mas_corto() {
         let a = Pose::facing(Vec3::zeros(), 1.0);
         let b = Pose { yaw: TAU - 0.2, ..a };
-        // De 0 a casi una vuelta completa, la mitad del camino es -0.1 y no casi media vuelta
+        // From 0 to almost a full turn, halfway is -0.1 and not almost half a turn
         assert!(cerca(Pose::lerp(&a, &b, 0.5).yaw, -0.1));
     }
 }

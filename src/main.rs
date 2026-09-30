@@ -5,6 +5,7 @@ mod controls;
 mod cube;
 mod diorama;
 mod framebuffer;
+mod grabacion;
 mod image_io;
 mod inflate;
 mod light;
@@ -15,10 +16,10 @@ mod ray_intersect;
 mod render;
 mod scene;
 mod skybox;
-// Las esferas quedaron de las primeras versiones; el diorama es solo de cubos, pero las
-// pruebas del render las siguen usando
+// Only used by the render tests
 #[cfg(test)]
 mod sphere;
+mod texto;
 mod texture;
 mod viaje;
 mod voxel;
@@ -33,26 +34,23 @@ use std::time::{Duration, Instant};
 use viaje::{Paso, Viaje};
 use window::{Key, Window};
 
-// Tiempo minimo entre cuadros (60 por segundo), para no ocupar un nucleo entero sin hacer nada
+// Minimum time between frames (60 per second), so an idle loop doesn't burn a whole core
 const CUADRO: Duration = Duration::from_micros(16_667);
 
-// Mientras la camara se mueve se dibuja con pixeles de 2x2 (4 veces menos rayos) para que
-// responda fluido; al soltar se dibuja el cuadro a resolucion completa
+// 2 x 2 pixels while the camera moves, so it stays responsive
 const PIXEL_EN_MOVIMIENTO: usize = 2;
 
-// Velocidad de la rotacion automatica (tecla R), en radianes por segundo: una vuelta cada
-// 30 segundos
+// Automatic rotation (R): one turn every 30 seconds
 const ROTACION_AUTOMATICA: f32 = std::f32::consts::TAU / 30.0;
 
-/// Una tecla que tiene que actuar una sola vez por cada vez que se aprieta, aunque se
-/// mantenga apretada varios cuadros
+/// Key that acts only once per press
 #[derive(Default)]
 struct Tecla {
     apretada: bool,
 }
 
 impl Tecla {
-    /// Si la tecla se acaba de apretar en este cuadro
+    /// Whether the key was just pressed this frame
     fn pulsada(&mut self, window: &Window, key: Key) -> bool {
         let down = window.is_key_down(key);
         let pulsada = down && !self.apretada;
@@ -67,9 +65,7 @@ fn main() {
 
     let mut framebuffer = Framebuffer::new(800, 600);
 
-    // Los dos mundos se arman al arrancar, con las mismas texturas cargadas una sola vez.
-    // `--nether` empieza del otro lado del portal, y `--noche` o `--dia` cambian la hora de
-    // la mina.
+    // Both worlds are built at startup, sharing textures that are loaded only once
     let blocks = Blocks::load();
     let mut mundos = [superficie(&blocks), inframundo(&blocks)];
     let mut actual = if flag("--nether") { 1 } else { 0 };
@@ -80,10 +76,11 @@ fn main() {
     } else {
         0
     };
-    let mut normal_maps = true;
+    // `--sin-normales` starts with normal maps off (like pressing N)
+    let mut normal_maps = !flag("--sin-normales");
     let mut camera = mundos[actual].home;
 
-    // `cargo run -- --captura` renderiza un solo cuadro a output.png sin abrir la ventana
+    // `cargo run -- --captura` renders a single frame to output.png without opening the window
     if flag("--captura") {
         render(&mut framebuffer, &mundos[actual].scene(normal_maps), &camera, 1);
         framebuffer
@@ -92,7 +89,15 @@ fn main() {
         return;
     }
 
-    // `cargo run -- --bench` mide cuanto tarda un cuadro mientras la camara da una vuelta
+    // `--grabar`: writes the tour video for ffmpeg (see grabacion.rs)
+    if flag("--grabar") {
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        grabacion::grabar(&mut mundos, &mut out).expect("Error al escribir el video");
+        return;
+    }
+
+    // `cargo run -- --bench` measures how long a frame takes while the camera turns around
     if flag("--bench") {
         const CUADROS: u32 = 30;
         let scene = mundos[actual].scene(normal_maps);
@@ -115,8 +120,7 @@ fn main() {
         return;
     }
 
-    // `cargo run -- --viaje` guarda algunos cuadros del viaje por el portal (viaje_N.png),
-    // para revisar la animacion sin abrir la ventana
+    // `--viaje`: saves frames of the portal trip
     if flag("--viaje") {
         let mut viaje = Viaje::new(&camera);
         let mut reloj = 0.0;
@@ -155,7 +159,7 @@ fn main() {
     let mut anterior = Instant::now();
 
     render(&mut framebuffer, &mundos[actual].scene(normal_maps), &camera, 1);
-    // Si el ultimo cuadro se dibujo a baja resolucion y falta el de resolucion completa
+    // Whether the last frame was drawn at low resolution and the full one is still missing
     let mut falta_detalle = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -164,27 +168,27 @@ fn main() {
         anterior = inicio;
         reloj += dt;
 
-        // N prende y apaga los mapas normales, para comparar el relieve con y sin ellos
+        // N toggles normal maps, to compare the relief with and without them
         if tecla_n.pulsada(&window, Key::N) {
             normal_maps = !normal_maps;
             falta_detalle = true;
         }
-        // T cambia la hora del dia (en la mina: atardecer, noche, dia)
+        // T changes the time of day (in the mine: sunset, night, day)
         if tecla_t.pulsada(&window, Key::T) && mundos[actual].siguiente_horario() {
             falta_detalle = true;
         }
-        // R prende y apaga la rotacion automatica alrededor del diorama
+        // R toggles the automatic rotation around the diorama
         if tecla_r.pulsada(&window, Key::R) {
             rotando = !rotando;
         }
-        // P cruza el portal hacia el otro mundo
+        // P goes through the portal to the other world
         if tecla_p.pulsada(&window, Key::P) && viaje.is_none() {
             viaje = Some(Viaje::new(&camera));
         }
         window.set_title(&titulo(&mundos[actual], normal_maps, rotando));
 
         if let Some(v) = &mut viaje {
-            // Durante el viaje la camara la mueve la animacion, no los controles
+            // During the trip the animation moves the camera, not the controls
             let mundo = &mundos[actual];
             match v.avanzar(dt, &mut camera, mundo.portal, &mundo.home) {
                 Paso::CambiarMundo => actual = 1 - actual,
@@ -197,9 +201,7 @@ fn main() {
             framebuffer.portal_swirl(overlay, reloj);
             falta_detalle = true;
         } else if controls.update(&window, &mut camera) | rotando {
-            // Solo se vuelve a renderizar cuando la camara se mueve (con los controles o con
-            // la rotacion automatica), o cuando se deja de mover para dibujar el cuadro con
-            // todo el detalle
+            // Render only when the camera moves, or for the final full detail frame
             if rotando {
                 camera.orbit(ROTACION_AUTOMATICA * dt, 0.0);
             }
@@ -219,7 +221,7 @@ fn main() {
     }
 }
 
-/// Titulo de la ventana: el mundo y su hora, los controles y el estado de cada opcion
+/// Window title: the world and its time of day, the controls and the state of each option
 fn titulo(mundo: &Mundo, normal_maps: bool, rotando: bool) -> String {
     let si_no = |b: bool| if b { "si" } else { "no" };
     let hora = if mundo.horarios.len() > 1 {

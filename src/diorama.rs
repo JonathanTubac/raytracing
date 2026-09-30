@@ -1,25 +1,10 @@
-//! El diorama: una isla flotante de 20 x 20 bloques con una mina adentro, cortada por el
-//! frente como las maquetas de Minecraft para que se vea el interior.
-//!
-//! - Superficie: pasto, una colina, dos arboles, la entrada de la mina con su marco de
-//!   madera y la cabana del minero, con un portal al Nether en la pared del fondo. Un
-//!   estanque con orilla de arena refleja el cielo, y sobre la caverna hay un tragaluz de
-//!   vidrio por donde entra el sol, refractado.
-//! - Un tunel en escalera baja pegado al frente, con soportes de madera como un mineshaft.
-//! - La caverna tiene glowstone colgando del techo, una poza de lava, un estanque de agua,
-//!   obsidiana donde se juntan (la lava que toca agua se vuelve obsidiana), un alijo de oro
-//!   y diamante, y una geoda de amatista en la pared.
-//! - Las paredes son piedra y, en lo profundo, deepslate, con minerales segun la
-//!   profundidad como en el juego (carbon arriba, diamante abajo). La base es bedrock.
-//!
-//! La forma de la caverna y la ubicacion de los minerales salen de un ruido propio, asi que
-//! la mina es siempre la misma pero no se ve hecha a mano.
+//! The mine: a 20 x 20 floating island cut open at the front
 
 use crate::blocks::Blocks;
 use crate::math::Vec3;
 use crate::ray_intersect::Material;
 
-// Extension de la isla (inclusive). El frente, donde esta el corte, es z = MAX_Z.
+// Island extent (inclusive). The front, where the cut is, is z = MAX_Z.
 pub(crate) const MIN_X: i32 = -10;
 pub(crate) const MAX_X: i32 = 9;
 pub(crate) const MIN_Z: i32 = -10;
@@ -27,14 +12,14 @@ pub(crate) const MAX_Z: i32 = 9;
 pub(crate) const MIN_Y: i32 = -12;
 pub(crate) const MAX_Y: i32 = 10;
 
-// Altura de la superficie (el pasto) fuera de la colina
+// Surface (grass) height outside the hill
 pub(crate) const SUPERFICIE: i32 = 0;
-// Desde esta altura hacia abajo la piedra es deepslate
+// From this height down, stone is deepslate
 const DEEPSLATE: i32 = -8;
-// Altura del agua y la lava en el fondo de la caverna
+// Height of the water and lava at the bottom of the cave
 const NIVEL_LIQUIDO: i32 = -8;
 
-/// Los bloques de la isla en una matriz 3D mientras se construye
+/// The island blocks in a 3D array while it is being built
 pub(crate) struct Grid {
     cells: Vec<Option<Material>>,
 }
@@ -71,7 +56,7 @@ impl Grid {
         self.get(x, y, z).is_none()
     }
 
-    /// Si alguna de las 6 celdas vecinas es aire
+    /// Whether any of the 6 neighboring cells is air
     pub(crate) fn touches_air(&self, x: i32, y: i32, z: i32) -> bool {
         [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
             .iter()
@@ -93,8 +78,7 @@ impl Grid {
     }
 }
 
-/// Numero entre 0 y 1 que parece al azar pero depende solo de la celda y la semilla, asi
-/// la mina sale igual cada vez
+/// Number between 0 and 1 that looks random but is always the same for a given cell
 pub(crate) fn hash(x: i32, y: i32, z: i32, seed: u32) -> f32 {
     let mut h = (x as u32).wrapping_mul(0x8DA6_B343)
         ^ (y as u32).wrapping_mul(0xD816_3841)
@@ -106,9 +90,7 @@ pub(crate) fn hash(x: i32, y: i32, z: i32, seed: u32) -> f32 {
     (h & 0x00FF_FFFF) as f32 / 0x0100_0000 as f32
 }
 
-/// Ruido suave: interpola el `hash` de las 8 esquinas enteras alrededor del punto, asi
-/// puntos cercanos dan valores parecidos (sirve para deformar la caverna sin que quede
-/// llena de agujeros sueltos)
+/// Smooth noise: interpolates the `hash` of the 8 integer corners around the point
 pub(crate) fn noise(x: f32, y: f32, z: f32, seed: u32) -> f32 {
     let (x0, y0, z0) = (x.floor(), y.floor(), z.floor());
     let smooth = |t: f32| t * t * (3.0 - 2.0 * t);
@@ -130,8 +112,7 @@ pub(crate) fn noise(x: f32, y: f32, z: f32, seed: u32) -> f32 {
     lerp(bottom, top, ty)
 }
 
-/// Altura del pasto en la columna (x, z): plano, salvo una colina atras a la izquierda,
-/// deformada con ruido para que no quede como una piramide perfecta
+/// Grass height: flat, except for a hill at the back left
 fn surface_height(x: i32, z: i32) -> i32 {
     let (dx, dz) = (x as f32 + 5.0, z as f32 + 6.0);
     let distance = (dx * dx + dz * dz).sqrt();
@@ -140,8 +121,7 @@ fn surface_height(x: i32, z: i32) -> i32 {
     SUPERFICIE + hill.max(0.0).round() as i32
 }
 
-/// Si la celda es parte de la caverna: dos elipsoides (la camara principal y una cuenca
-/// mas baja para el estanque) deformados con ruido para que las paredes sean irregulares
+/// Cave: two ellipsoids deformed with noise
 fn is_cave(x: i32, y: i32, z: i32) -> bool {
     if !(-10..=-3).contains(&y) {
         return false;
@@ -156,7 +136,7 @@ fn is_cave(x: i32, y: i32, z: i32) -> bool {
     chamber.min(basin) + wobble < 1.0
 }
 
-/// Arma la mina completa: la lista de bloques con su posicion y material
+/// Builds the whole mine: the list of blocks with their position and material
 pub fn mina(b: &Blocks) -> Vec<([i32; 3], Material)> {
     let mut grid = Grid::new();
 
@@ -174,8 +154,7 @@ pub fn mina(b: &Blocks) -> Vec<([i32; 3], Material)> {
     grid.into_blocks()
 }
 
-/// Capas de la isla: bedrock abajo (irregular en la segunda capa), deepslate, piedra, tres
-/// capas de tierra y el pasto arriba
+/// Layers: bedrock, deepslate, stone, dirt and grass
 fn terrain(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
@@ -198,14 +177,13 @@ fn terrain(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Minerales en la piedra segun la profundidad, como en el juego: carbon cerca de la
-/// superficie, hierro en el medio, y oro y diamante abajo
+/// Ores by depth: coal near the top, diamond at the bottom
 fn ores(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
             for y in MIN_Y..=SUPERFICIE {
                 let current = grid.get(x, y, z);
-                // Vetas de 2 o 3 bloques: el ruido de baja frecuencia agrupa los minerales
+                // Veins of 2 or 3 blocks: low frequency noise clumps the ores together
                 let clump = noise(x as f32 * 0.5, y as f32 * 0.5, z as f32 * 0.5, 3);
                 let r = hash(x, y, z, 2) * 0.6 + clump * 0.4;
 
@@ -238,8 +216,7 @@ fn ores(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Excava la caverna y la amuebla: lava y agua en el fondo, obsidiana donde se juntan,
-/// grava bajo el agua, glowstone en el techo y una geoda de amatista en la pared
+/// Cave with lava, water, obsidian, gravel, glowstone and an amethyst geode
 fn cave(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
@@ -251,8 +228,7 @@ fn cave(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Fondo: lava a la izquierda, agua a la derecha, y entre las dos una franja de
-    // obsidiana (la lava que toca agua se enfria y se vuelve obsidiana)
+    // Lava on the left, water on the right and obsidian where they meet
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
             for y in MIN_Y..=NIVEL_LIQUIDO {
@@ -271,7 +247,7 @@ fn cave(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Bajo el agua el fondo es grava
+    // The bottom under the water is gravel
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
             for y in MIN_Y + 1..=NIVEL_LIQUIDO {
@@ -282,8 +258,7 @@ fn cave(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Glowstone colgando del techo: bloques del techo elegidos al azar, con uno mas
-    // colgando debajo de algunos para que se vean como racimos
+    // Glowstone hanging from the ceiling, sometimes in clusters of two
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
             for y in -8..=-3 {
@@ -298,7 +273,7 @@ fn cave(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Geoda: la pared de la caverna se vuelve amatista alrededor de un punto
+    // Geode: the cave wall turns into amethyst around a point
     let (gx, gy, gz) = (7.0, -5.0, 2.5);
     for x in 4..=MAX_X {
         for y in -8..=-2 {
@@ -313,9 +288,7 @@ fn cave(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Tunel en escalera pegado al frente de la isla, desde la superficie a la izquierda hasta
-/// la caverna, con piso de tablones y un marco de madera (dos postes y una viga) cada dos
-/// escalones, como los mineshafts del juego
+/// Stair tunnel along the front, with wooden supports
 fn tunnel(grid: &mut Grid, b: &Blocks) {
     let width = MAX_Z - 2..=MAX_Z;
     for step in 0..=7 {
@@ -330,7 +303,7 @@ fn tunnel(grid: &mut Grid, b: &Blocks) {
         }
 
         if step % 2 == 1 {
-            // Poste atras (el frente queda libre para ver adentro) y viga arriba
+            // Post at the back (the front stays open to see inside) and a beam on top
             for y in floor + 1..=floor + 2 {
                 grid.set(x, y, MAX_Z - 2, Some(b.log));
             }
@@ -340,7 +313,7 @@ fn tunnel(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Marco de la entrada en la superficie, con una glowstone arriba que la ilumina
+    // Entrance frame on the surface, with a glowstone on top lighting it
     let x = MIN_X;
     let base = surface_height(x, MAX_Z);
     for y in base + 1..=base + 2 {
@@ -352,8 +325,7 @@ fn tunnel(grid: &mut Grid, b: &Blocks) {
     grid.set(x, base + 4, MAX_Z - 1, Some(b.glowstone));
 }
 
-/// Estanque en la superficie, adelante a la derecha: agua de un bloque de hondo con arena
-/// en el fondo y en la orilla, y una linterna marina que lo ilumina
+/// Pond with a sand shore and a sea lantern at the bottom
 fn pond(grid: &mut Grid, b: &Blocks) {
     let (x0, x1, z0, z1) = (5, 8, 4, 7);
     for x in x0 - 1..=x1 + 1 {
@@ -368,26 +340,22 @@ fn pond(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Una linterna marina en el fondo ilumina el agua desde abajo
+    // A sea lantern at the bottom lights the water from below
     grid.set(x0 + 1, surface_height(x0 + 1, z0 + 2) - 1, z0 + 2, Some(b.sea_lantern));
 }
 
-// Cabana del minero: esquinas (inclusive) y altura de las paredes
+// Miner's hut: corners (inclusive) and wall height
 const CABANA: (i32, i32, i32, i32) = (-10, -4, -1, 4);
 const CABANA_ALTO: i32 = 5;
 
-/// Centro del portal al Nether que esta en la pared del fondo de la cabana. La camara
-/// vuela hasta aca para pasar al otro mundo.
+/// Center of the Nether portal in the back wall of the hut
 pub fn portal_mina() -> Vec3 {
-    // El portal ocupa las dos columnas del medio de la pared: su centro queda entre ellas
+    // The portal takes the two middle columns of the wall: its center is between them
     let (x0, x1, z0, _) = CABANA;
     Vec3::new(((x0 + x1) / 2) as f32 + 0.5, SUPERFICIE as f32 + 2.0, z0 as f32)
 }
 
-/// Cabana del minero: piso de piedra, paredes de tablones con esquinas de tronco, ventanas
-/// de vidrio a los lados, techo escalonado y una glowstone adentro. En la pared del fondo
-/// esta el portal al Nether, y la puerta del frente queda justo delante, asi desde afuera
-/// se ve el portal brillando por la puerta.
+/// Miner's hut with windows, lamps and the Nether portal
 fn hut(grid: &mut Grid, b: &Blocks) {
     let (x0, x1, z0, z1) = CABANA;
     let floor = SUPERFICIE;
@@ -396,7 +364,7 @@ fn hut(grid: &mut Grid, b: &Blocks) {
 
     for x in x0..=x1 {
         for z in z0..=z1 {
-            // Cimiento: todo lleno hasta el piso, y aire arriba (por si la colina llegaba ahi)
+            // Foundation: solid up to the floor, and air above (in case the hill reached here)
             for y in floor - 2..floor {
                 if grid.is_air(x, y, z) {
                     grid.set(x, y, z, Some(b.dirt));
@@ -407,7 +375,7 @@ fn hut(grid: &mut Grid, b: &Blocks) {
                 grid.set(x, y, z, None);
             }
 
-            // Paredes: troncos en las esquinas y tablones en el resto
+            // Walls: logs at the corners and planks elsewhere
             let edge_x = x == x0 || x == x1;
             let edge_z = z == z0 || z == z1;
             if edge_x || edge_z {
@@ -417,7 +385,7 @@ fn hut(grid: &mut Grid, b: &Blocks) {
                 }
             }
 
-            // Techo escalonado: una capa entera, otra un bloque mas adentro y una cumbrera
+            // Stepped roof: a full layer, another one block inward and a ridge
             grid.set(x, top + 1, z, Some(b.planks));
             if (x0 + 1..x1).contains(&x) && (z0 + 1..z1).contains(&z) {
                 grid.set(x, top + 2, z, Some(b.planks));
@@ -428,8 +396,7 @@ fn hut(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Portal en la pared del fondo: marco de obsidiana de 4 x 5 (el minimo del juego) con
-    // el portal de 2 x 3 adentro
+    // Portal: 4 x 5 obsidian frame with the 2 x 3 portal inside
     let (px0, px1) = (middle_x - 1, middle_x + 2);
     for x in px0..=px1 {
         for y in floor..=floor + 4 {
@@ -438,14 +405,14 @@ fn hut(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Puerta de 2 de ancho al frente, alineada con el portal
+    // 2 wide door at the front, lined up with the portal
     for x in px0 + 1..=px1 - 1 {
         for y in floor + 1..=floor + 3 {
             grid.set(x, y, z1, None);
         }
     }
 
-    // Ventanas de 2 x 2 a los lados
+    // 2 x 2 windows on the sides
     for z in z0 + 2..=z0 + 3 {
         for y in floor + 2..=floor + 3 {
             grid.set(x0, y, z, Some(b.glass));
@@ -453,13 +420,12 @@ fn hut(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Lamparas en las esquinas de adentro, junto a la puerta
+    // Lamps in the inner corners, next to the door
     grid.set(x0 + 1, floor + 1, z1 - 1, Some(b.glowstone));
     grid.set(x1 - 1, floor + 1, z1 - 1, Some(b.glowstone));
 }
 
-/// Tragaluz: una columna de vidrio de 2 x 2 desde el pasto hasta el techo de la caverna,
-/// por donde entra la luz del sol doblada por el vidrio
+/// Skylight: glass column from the grass down to the cave
 fn skylight(grid: &mut Grid, b: &Blocks) {
     for x in 3..=4 {
         for z in 4..=5 {
@@ -472,7 +438,7 @@ fn skylight(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Roble de Minecraft: tronco de 5 bloques y copa de hojas en capas
+/// Minecraft oak: 5 block trunk and a layered leaf canopy
 fn tree(grid: &mut Grid, b: &Blocks, x: i32, z: i32) {
     let base = surface_height(x, z) + 1;
     let top = base + 4;
@@ -481,7 +447,7 @@ fn tree(grid: &mut Grid, b: &Blocks, x: i32, z: i32) {
         let y = top + dy;
         for dx in -radius..=radius {
             for dz in -radius..=radius {
-                // Sin las esquinas, y algunas esquinas de las capas grandes al azar
+                // Without corners, and some random corners of the large layers
                 let corner = dx.abs() == radius && dz.abs() == radius;
                 if corner && (radius == 1 || hash(x + dx, y, z + dz, 6) < 0.6) {
                     continue;
@@ -495,12 +461,11 @@ fn tree(grid: &mut Grid, b: &Blocks, x: i32, z: i32) {
     }
 }
 
-/// Alijo de un minero sobre la franja de obsidiana: bloques de oro y uno de diamante, que
-/// reflejan la luz de la lava y la glowstone
+/// Gold and diamond stash on the obsidian
 fn treasure(grid: &mut Grid, b: &Blocks) {
     let spots = [(1, 6, b.gold), (2, 6, b.gold), (1, 7, b.gold), (1, 6, b.diamond)];
     for (x, z, block) in spots {
-        // Primer lugar libre sobre el piso de esa columna
+        // First free spot above the floor of that column
         let mut y = NIVEL_LIQUIDO + 1;
         while !grid.is_air(x, y, z) && y < -3 {
             y += 1;
@@ -528,7 +493,7 @@ mod tests {
         let a = noise(3.30, -1.20, 7.70, 1);
         let b = noise(3.31, -1.20, 7.70, 1);
         assert!((a - b).abs() < 0.02);
-        // En las esquinas enteras coincide con el hash
+        // At integer corners it matches the hash
         assert!((noise(2.0, 5.0, -3.0, 1) - hash(2, 5, -3, 1)).abs() < 1e-6);
     }
 
@@ -545,13 +510,13 @@ mod tests {
         terrain(&mut grid, &b);
         hut(&mut grid, &b);
 
-        // El centro del portal es portal
+        // The center of the portal is portal
         let p = portal_mina();
         let (px, py, pz) = (p.x.floor() as i32, p.y as i32, p.z as i32);
         assert_eq!(grid.get(px, py, pz), Some(b.nether_portal));
         assert_eq!(grid.get(px + 1, py, pz), Some(b.nether_portal));
 
-        // Entre el portal y la puerta (incluida) todo es aire
+        // Everything between the portal and the door (included) is air
         let (_, _, z0, z1) = CABANA;
         for z in z0 + 1..=z1 {
             assert!(grid.is_air(px, py, z), "z = {z}");

@@ -1,36 +1,24 @@
-//! El Nether: la isla del otro lado del portal. Tiene el mismo tamano y el mismo corte al
-//! frente que la mina.
-//!
-//! - Un lago de lava adelante a la derecha, con orilla de magma, cruzado por un puente de
-//!   fortaleza de ladrillos del Nether sobre pilares, que termina en un arco.
-//! - Atras a la derecha, un bosque carmesi: nylium y dos hongos gigantes con sombrero de
-//!   verruga y shroomlight colgando.
-//! - Atras a la izquierda, un valle de arena de almas con pilares de basalto.
-//! - Adelante a la izquierda, el portal de llegada sobre una plataforma de piedra negra, con
-//!   obsidiana llorona alrededor.
-//! - Arriba flota un pedazo de netherrack con glowstone colgando debajo.
-//! - Netherrack con cuarzo y oro del Nether, ancient debris en lo profundo, y una base
-//!   irregular de piedra negra con estalactitas.
+//! The Nether: the island on the other side of the portal
 
 use crate::blocks::Blocks;
 use crate::diorama::{hash, noise, Grid, MAX_X, MAX_Y, MAX_Z, MIN_X, MIN_Y, MIN_Z, SUPERFICIE};
 use crate::math::Vec3;
 use crate::ray_intersect::Material;
 
-// Nivel de la superficie del lago de lava
+// Surface level of the lava lake
 const NIVEL_LAVA: i32 = -4;
 
-// Marco del portal de llegada: columnas x (inclusive) y la fila z donde esta
+// Arrival portal frame: x columns (inclusive) and its z row
 const PORTAL_X: (i32, i32) = (-9, -6);
 const PORTAL_Z: i32 = 3;
 
-/// Centro del portal de llegada; la camara aparece aca al cruzar desde la mina
+/// Center of the arrival portal; the camera appears here when coming from the mine
 pub fn portal_nether() -> Vec3 {
     let (x0, x1) = PORTAL_X;
     Vec3::new((x0 + x1) as f32 / 2.0, SUPERFICIE as f32 + 2.0, PORTAL_Z as f32)
 }
 
-/// Altura de la superficie: ondulada con ruido, y plana alrededor del portal
+/// Surface height: wavy with noise, and flat around the portal
 fn surface_height(x: i32, z: i32) -> i32 {
     if is_platform(x, z) {
         return SUPERFICIE;
@@ -39,20 +27,19 @@ fn surface_height(x: i32, z: i32) -> i32 {
     SUPERFICIE + bumps.round() as i32
 }
 
-/// Plataforma plana donde esta el portal de llegada
+/// Flat platform where the arrival portal stands
 fn is_platform(x: i32, z: i32) -> bool {
     (MIN_X..=-4).contains(&x) && (1..=MAX_Z).contains(&z)
 }
 
-/// Si la columna es parte del lago de lava: un ovalo adelante a la derecha, con la orilla
-/// deformada por ruido
+/// Lava lake: an oval at the front right
 fn is_lake(x: i32, z: i32) -> bool {
     let (dx, dz) = ((x as f32 - 4.0) / 6.5, (z as f32 - 6.0) / 4.5);
     let wobble = (noise(x as f32 * 0.4, 5.0, z as f32 * 0.4, 21) - 0.5) * 0.5;
     dx * dx + dz * dz + wobble < 1.0
 }
 
-/// Arma el Nether completo: la lista de bloques con su posicion y material
+/// Builds the whole Nether: the list of blocks with their position and material
 pub fn nether(b: &Blocks) -> Vec<([i32; 3], Material)> {
     let mut grid = Grid::new();
 
@@ -67,8 +54,7 @@ pub fn nether(b: &Blocks) -> Vec<([i32; 3], Material)> {
     grid.into_blocks()
 }
 
-/// El cuerpo de la isla: netherrack con minerales, una base irregular de piedra negra y
-/// basalto, y estalactitas colgando debajo
+/// Netherrack with ores, a blackstone base and stalactites
 fn body(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
@@ -91,7 +77,7 @@ fn body(grid: &mut Grid, b: &Blocks) {
                 grid.set(x, y, z, Some(block));
             }
 
-            // Estalactitas de netherrack bajo la isla
+            // Netherrack stalactites under the island
             if hash(x, 0, z, 24) < 0.18 {
                 let length = 1 + (hash(x, 1, z, 24) * 4.0) as i32;
                 for y in (bottom - length).max(MIN_Y)..bottom {
@@ -102,12 +88,12 @@ fn body(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Lago de lava de dos bloques de hondo, con magma en la orilla y en el fondo
+/// Two block deep lava lake, with magma on the shore and at the bottom
 fn lava_lake(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=MAX_X {
         for z in MIN_Z..=MAX_Z {
             if !is_lake(x, z) {
-                // Orilla: magma en la superficie junto al lago
+                // Shore: magma on the surface next to the lake
                 let shore = [(1, 0), (-1, 0), (0, 1), (0, -1)]
                     .iter()
                     .any(|(dx, dz)| is_lake(x + dx, z + dz));
@@ -129,7 +115,7 @@ fn lava_lake(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Valle de arena de almas atras a la izquierda, con pilares de basalto de distinto alto
+/// Soul sand valley at the back left, with basalt pillars of different heights
 fn soul_valley(grid: &mut Grid, b: &Blocks) {
     for x in MIN_X..=-3 {
         for z in MIN_Z..=-2 {
@@ -147,7 +133,7 @@ fn soul_valley(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Bosque carmesi atras a la derecha: nylium en el suelo y dos hongos gigantes
+/// Crimson forest at the back right: nylium on the ground and two huge fungi
 fn crimson_forest(grid: &mut Grid, b: &Blocks) {
     for x in 0..=MAX_X {
         for z in MIN_Z..=0 {
@@ -160,8 +146,7 @@ fn crimson_forest(grid: &mut Grid, b: &Blocks) {
     huge_fungus(grid, b, 8, -1, 4);
 }
 
-/// Hongo carmesi gigante: tallo, sombrero de verruga con faldon colgando y shroomlight
-/// debajo del sombrero
+/// Huge crimson fungus with shroomlights under the cap
 fn huge_fungus(grid: &mut Grid, b: &Blocks, x: i32, z: i32, height: i32) {
     let base = surface_height(x, z) + 1;
     let top = base + height;
@@ -172,12 +157,12 @@ fn huge_fungus(grid: &mut Grid, b: &Blocks, x: i32, z: i32, height: i32) {
             for dz in -radius..=radius {
                 let distance = dx.abs().max(dz.abs());
                 let corner = dx.abs() == radius && dz.abs() == radius;
-                // Las dos capas de abajo son solo el faldon del borde, huecas por dentro
+                // The two bottom layers are just the hanging rim, hollow inside
                 let skirt_only = dy <= 0 && distance < radius;
                 if corner || skirt_only {
                     continue;
                 }
-                // El faldon de mas abajo no es parejo: le faltan algunos bloques
+                // The lowest rim is uneven: some blocks are missing
                 if dy == -1 && hash(x + dx, y, z + dz, 28) < 0.35 {
                     continue;
                 }
@@ -186,7 +171,7 @@ fn huge_fungus(grid: &mut Grid, b: &Blocks, x: i32, z: i32, height: i32) {
         }
     }
 
-    // Shroomlight colgando bajo el sombrero, alrededor del tallo
+    // Shroomlights hanging under the cap, around the stem
     for dx in -2..=2 {
         for dz in -2..=2 {
             if (dx != 0 || dz != 0) && hash(x + dx, top, z + dz, 29) < 0.3 {
@@ -200,8 +185,7 @@ fn huge_fungus(grid: &mut Grid, b: &Blocks, x: i32, z: i32, height: i32) {
     }
 }
 
-/// Puente de fortaleza sobre el lago: piso y barandas de ladrillo del Nether, pilares que
-/// bajan hasta la lava y un arco en la punta
+/// Fortress bridge over the lake, with pillars and an arch
 fn bridge(grid: &mut Grid, b: &Blocks) {
     let deck = SUPERFICIE;
     let (z0, z1) = (4, 6);
@@ -216,7 +200,7 @@ fn bridge(grid: &mut Grid, b: &Blocks) {
         grid.set(x, deck + 1, z1, Some(b.nether_bricks));
     }
 
-    // Pilares hasta el fondo del lago
+    // Pillars down to the bottom of the lake
     for x in [1, 6] {
         for z in z0..=z1 {
             for y in NIVEL_LAVA - 2..deck {
@@ -225,7 +209,7 @@ fn bridge(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Arco en la punta del puente
+    // Arch at the end of the bridge
     for y in deck + 1..=deck + 4 {
         grid.set(MAX_X, y, z0, Some(b.nether_bricks));
         grid.set(MAX_X, y, z1, Some(b.nether_bricks));
@@ -233,12 +217,11 @@ fn bridge(grid: &mut Grid, b: &Blocks) {
     for z in z0..=z1 {
         grid.set(MAX_X, deck + 4, z, Some(b.nether_bricks));
     }
-    // Entrada del puente libre, sin baranda
+    // Bridge entrance left open, without a railing
     grid.set(-3, deck + 1, z0 + 1, None);
 }
 
-/// Un pedazo de netherrack flotando sobre la isla, con glowstone pegada por debajo y
-/// algunos racimos colgando
+/// Floating rock with glowstone underneath
 fn floating_glowstone(grid: &mut Grid, b: &Blocks) {
     let (cx, cy, cz) = (-4.0, 8.5, -3.0);
     for x in -9..=1 {
@@ -271,13 +254,12 @@ fn floating_glowstone(grid: &mut Grid, b: &Blocks) {
     }
 }
 
-/// Portal de llegada sobre una plataforma de piedra negra, con obsidiana llorona tirada
-/// alrededor como en los portales en ruinas
+/// Arrival portal with crying obsidian around it
 fn arrival_portal(grid: &mut Grid, b: &Blocks) {
     let (x0, x1) = PORTAL_X;
     let floor = SUPERFICIE;
 
-    // Plataforma y aire encima
+    // Platform and air above it
     for x in x0 - 1..=x1 + 2 {
         for z in PORTAL_Z - 1..=PORTAL_Z + 3 {
             grid.set(x, floor, z, Some(b.blackstone));
@@ -287,8 +269,7 @@ fn arrival_portal(grid: &mut Grid, b: &Blocks) {
         }
     }
 
-    // Marco de obsidiana de 4 x 5, con el portal de 2 x 3 adentro. Algunos bloques del
-    // marco son obsidiana llorona, que brilla.
+    // 4 x 5 obsidian frame, with the 2 x 3 portal inside
     for x in x0..=x1 {
         for y in floor..=floor + 4 {
             let frame = x == x0 || x == x1 || y == floor || y == floor + 4;

@@ -61,7 +61,7 @@ impl RayIntersect for Sphere {
         let point = ray_origin + ray_direction * distance;
         let normal = normalize(&(point - self.center));
 
-        // Coordenadas de textura: u es el angulo alrededor del eje vertical y v va de polo a polo
+        // Texture coordinates: u is the angle around the vertical axis and v goes pole to pole
         let u = 0.5 + normal.z.atan2(normal.x) / (2.0 * PI);
         let v = 0.5 - normal.y.clamp(-1.0, 1.0).asin() / PI;
 
@@ -91,7 +91,7 @@ mod tests {
         assert!((hit.distance - 4.0).abs() < 1e-5);
         assert!((hit.point - Vec3::new(0.0, 0.0, -4.0)).norm() < 1e-5);
         assert!((hit.normal - Vec3::new(0.0, 0.0, 1.0)).norm() < 1e-5);
-        // De frente cae en el "ecuador" (v = 0.5), a un cuarto de vuelta (u = 0.75)
+        // Head-on it lands on the "equator" (v = 0.5), a quarter turn around (u = 0.75)
         assert!((hit.u - 0.75).abs() < 1e-5);
         assert!((hit.v - 0.5).abs() < 1e-5);
     }

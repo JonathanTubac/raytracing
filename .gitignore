@@ -1,3 +1,6 @@
 /target
 # Cuadros de prueba del viaje por el portal (cargo run -- --viaje)
 viaje_*.png
+# Copia maestra del video, de alta calidad y muy pesada; al repo va video/diorama.mp4
+video/*_master.mp4
+ffmpeg2pass*

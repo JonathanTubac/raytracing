@@ -4,38 +4,29 @@ use crate::color::Color;
 use crate::normal_map::NormalMap;
 use crate::texture::Texture;
 
-/// Como una superficie responde a la luz.
-///
-/// Los cuatro canales de luz se suman: color = difuso * albedo[0] + especular * albedo[1]
-/// + reflejo * reflectivity + refraccion * transparency. Para que no se sobre-ilumine, la
-/// suma de albedo[0], reflectivity y transparency deberia quedar cerca de 1 o menos.
+/// How a surface responds to light
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
-    /// De donde sale el color base (color solido, ajedrez o imagen)
+    /// Where the base color comes from (solid color, checkerboard or image)
     pub texture: Texture,
-    /// Cuanta luz difusa [0] y especular [1] refleja la superficie
+    /// How much diffuse [0] and specular [1] light the surface reflects
     pub albedo: [f32; 2],
-    /// Que tan concentrado es el brillo especular: bajo = brillo grande y suave (goma),
-    /// alto = punto chiquito y fuerte (espejo)
+    /// Specular exponent: low = large and soft highlight, high = small and sharp
     pub specular: f32,
-    /// Cuanta luz atraviesa la superficie (0 = opaco, 1 = totalmente transparente)
+    /// How much light goes through the surface (0 = opaque, 1 = fully transparent)
     pub transparency: f32,
-    /// Cuanta luz rebota como en un espejo (0 = nada, 1 = espejo perfecto)
+    /// How much light bounces like a mirror (0 = none, 1 = perfect mirror)
     pub reflectivity: f32,
-    /// Cuanto se dobla la luz al atravesar el material (aire 1.0, agua 1.33, vidrio 1.5).
-    /// Solo importa si `transparency` es mayor que 0.
+    /// How much light bends going through the material (air 1.0, water 1.33, glass 1.5)
     pub refractive_index: f32,
-    /// Relieve de la superficie: cambia la normal punto por punto (`None` = cara lisa)
+    /// Surface relief: changes the normal point by point (`None` = flat face)
     pub normal_map: Option<NormalMap>,
-    /// Luz propia que emite la superficie, como multiplo del color de su textura (0 = no
-    /// emite). Se ve igual este o no iluminada, y en la escena ademas alumbra lo que tiene
-    /// cerca.
+    /// Light emitted by the surface, as a multiple of its texture color (0 = none)
     pub emission: f32,
 }
 
 impl Material {
-    /// Material mate y opaco con la textura dada; los demas parametros se cambian despues
-    /// con `Material { specular: 50.0, ..Material::new(textura) }`
+    /// Matte, opaque material; change the rest with `..Material::new(textura)`
     pub fn new(texture: Texture) -> Self {
         Material {
             texture,
@@ -49,17 +40,12 @@ impl Material {
         }
     }
 
-    /// Si en ese pixel de la textura no hay superficie: el hueco entre las hojas de un
-    /// arbol. El rayo sigue de largo como si no hubiera chocado. Solo aplica a materiales
-    /// opacos; en los transparentes (vidrio, agua) la opacidad cambia cuanto se ve a traves.
+    /// Whether that texture pixel has no surface: the gap between the leaves of a tree
     pub fn is_hole(&self, alpha: Option<f32>) -> bool {
         self.transparency == 0.0 && alpha.is_some_and(|a| a < 0.5)
     }
 
-    /// Cuanta luz deja pasar la superficie en un pixel de la textura con esa opacidad.
-    /// Si la textura no trae opacidad, se usa `transparency` en toda la superficie. Si la
-    /// trae, los pixeles totalmente opacos (el marco del vidrio) no dejan pasar nada y el
-    /// resto usa `transparency`.
+    /// How much light the surface lets through at a texture pixel with that opacity
     pub fn transparency_at(&self, alpha: Option<f32>) -> f32 {
         match alpha {
             Some(a) if a >= 1.0 => 0.0,
@@ -68,7 +54,7 @@ impl Material {
     }
 }
 
-/// Que cara de un bloque se golpeo, para elegir su textura. Las esferas son todo "lado".
+/// Which block face was hit, to pick its texture. Spheres are all "side".
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Face {
     Top,
@@ -83,12 +69,11 @@ pub struct Intersect {
     pub distance: f32,
     pub is_intersecting: bool,
     pub material: Material,
-    /// Coordenadas de textura del punto de impacto, de 0 a 1
+    /// Texture coordinates of the hit point, from 0 to 1
     pub u: f32,
     pub v: f32,
     pub face: Face,
-    /// Direcciones en el mundo hacia donde crecen u y v sobre la superficie. Con ellas y
-    /// la normal se orienta el mapa normal de la cara.
+    /// World directions in which u and v grow along the surface
     pub tangent: Vec3,
     pub bitangent: Vec3,
 }
@@ -109,7 +94,7 @@ impl Intersect {
         }
     }
 
-    /// El mismo impacto, sobre la cara indicada y con sus direcciones de u y v
+    /// The same hit, on the given face and with its u and v directions
     pub fn on_face(self, face: Face, tangent: Vec3, bitangent: Vec3) -> Self {
         Intersect {
             face,
@@ -135,13 +120,12 @@ impl Intersect {
     }
 }
 
-/// Todo lo que un rayo puede golpear. Es `Sync` porque los pixeles se calculan en paralelo
-/// y todos los hilos leen la misma escena.
+/// Anything a ray can hit
 pub trait RayIntersect: Sync {
     fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect;
 }
 
-/// Permite mezclar objetos de distinto tipo en una misma escena (`Vec<Box<dyn RayIntersect>>`)
+/// Allows mixing different object types in one scene (`Vec<Box<dyn RayIntersect>>`)
 impl<T: RayIntersect + ?Sized> RayIntersect for Box<T> {
     fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect {
         (**self).ray_intersect(ray_origin, ray_direction)

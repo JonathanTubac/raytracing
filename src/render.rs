@@ -9,45 +9,38 @@ use crate::math::{dot, normalize, Vec3};
 use crate::ray_intersect::{Intersect, RayIntersect};
 use crate::skybox::Skybox;
 
-// Cuantas veces puede rebotar o atravesar un rayo antes de rendirse
+// How many times a ray can bounce or pass through before giving up
 const MAX_DEPTH: u32 = 4;
 
-// Separacion al lanzar rayos nuevos desde una superficie, para que no choquen con ella misma
+// Offset for new rays leaving a surface, so they don't hit the surface itself
 const BIAS: f32 = 1e-3;
 
-// Cuantas superficies puede cruzar un rayo de sombra camino a la luz (hojas, vidrio, agua)
-// antes de darla por tapada
+// Maximum surfaces a shadow ray crosses before treating the light as blocked
 const MAX_SHADOW_STEPS: u32 = 16;
 
-/// Todo lo que un rayo puede encontrar: los objetos, las luces que los iluminan y el cielo
-/// que se ve cuando no choca con nada
+/// Scene objects, lights and sky
 pub struct Scene<'a, O> {
     pub objects: &'a [O],
     pub lights: &'a [Light],
     pub skybox: &'a Skybox,
-    /// Luz minima que recibe cualquier superficie, aunque ninguna luz le llegue de frente:
-    /// la que rebota por todos lados. Mas baja y fria de noche que de dia.
+    /// Minimum light any surface receives
     pub ambient: Color,
-    /// Si se usan los mapas normales. Se puede apagar en vivo (tecla N) para comparar
-    /// como se ve el relieve con y sin ellos.
+    /// Whether normal maps are used
     pub normal_maps: bool,
 }
 
-/// Direccion en que rebota un rayo que llega con `incident` a una superficie con esa normal
+/// Direction a ray arriving as `incident` bounces off a surface with that normal
 fn reflect(incident: &Vec3, normal: &Vec3) -> Vec3 {
     incident - 2.0 * dot(incident, normal) * normal
 }
 
-/// Direccion en que se dobla un rayo al atravesar la superficie (ley de Snell).
-/// Devuelve `None` en reflexion total interna: cuando el rayo sale de un material denso
-/// con un angulo tan cerrado que no puede salir y rebota por dentro.
+/// Direction a ray bends to when passing through the surface (Snell's law)
 fn refract(incident: &Vec3, normal: &Vec3, refractive_index: f32) -> Option<Vec3> {
     let mut cos_i = -dot(incident, normal).clamp(-1.0, 1.0);
     let mut normal = *normal;
     let (mut eta_i, mut eta_t) = (1.0, refractive_index);
 
-    // Si el rayo ya esta dentro del material (la normal apunta hacia afuera y el rayo
-    // tambien), se invierte todo: sale del material hacia el aire
+    // Ray inside the material: flip everything, it exits into the air
     if cos_i < 0.0 {
         cos_i = -cos_i;
         normal = -normal;
@@ -64,8 +57,7 @@ fn refract(incident: &Vec3, normal: &Vec3, refractive_index: f32) -> Option<Vec3
     }
 }
 
-/// Punto desde donde lanzar un rayo nuevo: apenas separado de la superficie, del lado
-/// hacia donde va el rayo
+/// Origin of a new ray, slightly off the surface
 fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
     if dot(direction, normal) < 0.0 {
         point - normal * BIAS
@@ -74,15 +66,13 @@ fn offset_origin(point: &Vec3, direction: &Vec3, normal: &Vec3) -> Vec3 {
     }
 }
 
-/// El impacto mas cercano del rayo entre todos los objetos de la escena
+/// The ray's nearest hit among all scene objects
 fn closest_hit<O: RayIntersect>(
     objects: &[O],
     origin: &Vec3,
     direction: &Vec3,
 ) -> Option<Intersect> {
-    // Z-buffer: guarda la distancia del impacto mas cercano visto hasta ahora en este rayo.
-    // Un objeto solo cuenta si choca mas cerca que lo que ya esta guardado, asi el
-    // resultado no depende del orden en que se agregaron los objetos.
+    // Z-buffer: keeps the distance of the nearest hit seen so far along this ray
     let mut zbuffer = f32::INFINITY;
     let mut closest = None;
 
@@ -96,9 +86,7 @@ fn closest_hit<O: RayIntersect>(
     closest
 }
 
-/// Cuanta luz de `light` llega a `point`: 1 si no hay nada en el camino y 0 si un objeto
-/// opaco la tapa. Los objetos transparentes dejan pasar una parte, asi el vidrio y el agua
-/// dan sombras mas claras que la piedra.
+/// How much light from `light` reaches `point` (0 = blocked, 1 = all of it)
 fn light_visibility<O: RayIntersect>(
     point: &Vec3,
     normal: &Vec3,
@@ -110,20 +98,18 @@ fn light_visibility<O: RayIntersect>(
     let direction = to_light * (1.0 / remaining);
     let mut origin = offset_origin(point, &direction, normal);
 
-    // Se avanza de superficie en superficie hacia la luz. Cada una que cruza el rayo deja
-    // pasar una parte de la luz; la primera opaca la tapa del todo.
+    // Step from surface to surface toward the light
     let mut visibility = 1.0;
     for _ in 0..MAX_SHADOW_STEPS {
         let Some(hit) = closest_hit(objects, &origin, &direction) else {
             return visibility;
         };
-        // Llego a la luz: o la paso, o choco con el bloque que la emite
+        // Reached the light: either passed it or hit the block emitting it
         if hit.distance >= remaining || light.contains(&hit.point) {
             return visibility;
         }
 
-        // Cuanta luz deja pasar depende del pixel de la textura donde cruza el rayo: por
-        // el hueco entre las hojas pasa toda, por el marco del vidrio nada
+        // All the light goes through leaf gaps; none through the glass frame
         let (_, alpha) = hit.material.texture.sample(hit.u, hit.v, hit.face);
         if !hit.material.is_hole(alpha) {
             visibility *= hit.material.transparency_at(alpha);
@@ -135,7 +121,7 @@ fn light_visibility<O: RayIntersect>(
         remaining -= hit.distance;
         origin = offset_origin(&hit.point, &direction, &hit.normal);
     }
-    // Demasiadas superficies en el camino: se da la luz por tapada
+    // Too many surfaces in the way: treat the light as blocked
     0.0
 }
 
@@ -149,33 +135,26 @@ pub fn cast_ray<O: RayIntersect>(
         return scene.skybox.sample(ray_direction);
     }
 
-    // Si no choca con nada se ve el cielo en esa direccion
+    // If nothing is hit, the sky in that direction is seen
     let Some(mut hit) = closest_hit(scene.objects, ray_origin, ray_direction) else {
         return scene.skybox.sample(ray_direction);
     };
     let material = hit.material;
 
-    // El color de la superficie viene de la textura del material en el punto de impacto,
-    // con la imagen que corresponde a esa cara del bloque
     let (base, alpha) = material.texture.sample(hit.u, hit.v, hit.face);
 
-    // Hueco en la textura (entre las hojas): el rayo sigue de largo desde ahi. No cuenta
-    // como un rebote, porque en realidad no choco con nada.
+    // Hole in the texture (between leaves): the ray keeps going from there
     if material.is_hole(alpha) {
         let origin = offset_origin(&hit.point, ray_direction, &hit.normal);
         return cast_ray(&origin, ray_direction, scene, depth);
     }
 
-    // Si se ve la cara desde adentro de un bloque opaco (la cara de atras de un bloque de
-    // hojas, vista a traves de un hueco) se ilumina como si mirara hacia la camara
+    // Face seen from inside an opaque block: light it toward the camera
     if material.transparency == 0.0 && dot(&hit.normal, ray_direction) > 0.0 {
         hit.normal = -hit.normal;
     }
 
-    // Normal para iluminar: la del mapa normal si el material tiene relieve (y los mapas
-    // estan prendidos), o la de la cara si es lisa. La normal de la cara (`hit.normal`) se
-    // sigue usando para separar los rayos nuevos de la superficie, porque es la que dice de
-    // que lado esta cada cosa.
+    // Normal for lighting: the normal map one if there is one, else the face normal
     let normal = match material.normal_map {
         Some(normal_map) if scene.normal_maps => normal_map.perturb(&hit),
         _ => hit.normal,
@@ -184,14 +163,12 @@ pub fn cast_ray<O: RayIntersect>(
     let transparency = material.transparency_at(alpha);
     let view_dir = normalize(&-ray_direction);
 
-    // Luz que llega directo de cada luz a este punto. Empieza con la luz ambiente: la
-    // minima que recibe cualquier superficie aunque ninguna luz le llegue de frente.
+    // Light reaching this point directly from each light
     let mut diffuse_light = scene.ambient;
     let mut specular = Color::black();
 
     for light in scene.lights {
-        // Las luces de los bloques emisivos solo alumbran de cerca. Si este punto esta
-        // fuera de su alcance no aporta nada, y se ahorra el rayo de sombra.
+        // Emissive block lights only reach nearby points
         let to_light = light.position - hit.point;
         let distance = to_light.norm();
         let attenuation = light.attenuation(distance);
@@ -199,18 +176,15 @@ pub fn cast_ray<O: RayIntersect>(
             continue;
         }
 
-        // Luz difusa: entre mas de frente le llega la luz a la superficie, mas brillante.
-        // Es el coseno del angulo entre la normal y la direccion hacia la luz.
+        // Diffuse light: the more head-on the light hits the surface, the brighter
         let light_dir = to_light * (1.0 / distance);
         if dot(&hit.normal, &light_dir) <= 0.0 {
-            // La luz esta del otro lado de la cara: no aporta nada, ni hace falta revisar si
-            // hay algo tapandola. Se mira la cara y no el relieve, para que la luz no se
-            // cuele por detras del bloque.
+            // The light is on the other side of the face
             continue;
         }
         let facing = dot(&normal, &light_dir).max(0.0);
 
-        // Sombra: si algo tapa la luz, esta no aporta nada (o solo una parte si es vidrio)
+        // Shadow: if something blocks the light it adds nothing (or only part through glass)
         let visibility = light_visibility(&hit.point, &hit.normal, light, scene.objects);
         if visibility <= 0.0 {
             continue;
@@ -219,26 +193,23 @@ pub fn cast_ray<O: RayIntersect>(
 
         diffuse_light += light_color * facing;
 
-        // Luz especular: el brillo de la luz sobre la superficie, que se ve solo cuando la
-        // camara esta cerca de la direccion en la que rebota la luz
+        // Specular light: the highlight of light reflected toward the camera
         let reflected_light = reflect(&-light_dir, &normal);
         let shine = dot(&view_dir, &reflected_light).max(0.0).powf(material.specular);
         specular += light_color * shine;
     }
 
-    // En los materiales transparentes con textura (vidrio, agua) la luz difusa sale solo
-    // de la parte pintada: el marco del vidrio se ve con su color y el centro no aporta
+    // In glass and water, diffuse light only comes from the painted part
     let coverage = if material.transparency > 0.0 { alpha.unwrap_or(1.0) } else { 1.0 };
     let mut color =
         base * diffuse_light * (material.albedo[0] * coverage) + specular * material.albedo[1];
 
-    // Luz propia: los bloques emisivos brillan con el color de su textura aunque no les
-    // llegue ninguna luz. Puede pasar de 1.0; el tone mapping lo suaviza.
+    // Own light of emissive blocks
     if material.emission > 0.0 {
         color += base * material.emission;
     }
 
-    // Reflejo: se lanza otro rayo en la direccion de rebote y se mezcla lo que encuentre
+    // Reflection: cast another ray in the bounce direction and blend in what it finds
     if material.reflectivity > 0.0 {
         let direction = normalize(&reflect(ray_direction, &normal));
         let origin = offset_origin(&hit.point, &direction, &hit.normal);
@@ -247,8 +218,7 @@ pub fn cast_ray<O: RayIntersect>(
         color += reflected * material.reflectivity;
     }
 
-    // Transparencia: se lanza otro rayo que atraviesa la superficie doblandose. Si no puede
-    // atravesarla (reflexion total interna), el rayo rebota por dentro.
+    // Transparency: cast another ray that bends through the surface
     if transparency > 0.0 {
         let direction = match refract(ray_direction, &normal, material.refractive_index) {
             Some(refracted) => normalize(&refracted),
@@ -263,11 +233,7 @@ pub fn cast_ray<O: RayIntersect>(
     color
 }
 
-/// Dibuja la escena vista desde la camara.
-///
-/// `pixel_size` permite dibujar mas rapido a menor resolucion: se lanza un solo rayo por
-/// cada cuadrado de `pixel_size` x `pixel_size` pixeles y se pinta todo el cuadrado de ese
-/// color. Con 1 se lanza un rayo por pixel; con 2 hay 4 veces menos rayos.
+/// Draws the scene as seen from the camera
 pub fn render<O: RayIntersect>(
     framebuffer: &mut Framebuffer,
     scene: &Scene<O>,
@@ -280,14 +246,11 @@ pub fn render<O: RayIntersect>(
     let aspect_ratio = width / height;
     let pixels_wide = framebuffer.width;
 
-    // Lo que es igual para todos los pixeles se calcula una sola vez por cuadro
+    // What is the same for every pixel is computed once per frame
     let eye = camera.eye();
     let basis = camera.basis();
 
-    // Cada pixel es independiente de los demas, asi que se reparten entre todos los nucleos
-    // del procesador. El trabajo se reparte por franjas de filas: cada hilo toma la
-    // siguiente franja libre cuando termina la suya. Asi, si un hilo cae en franjas caras
-    // (vidrio, agua) los demas siguen avanzando en vez de quedarse esperando a que termine.
+    // Each thread takes the next free band of rows
     let bands = framebuffer.buffer_mut().chunks_mut(pixels_wide * pixel_size).enumerate();
     let bands = Mutex::new(bands);
     let threads = thread::available_parallelism().map_or(4, |n| n.get());
@@ -296,28 +259,24 @@ pub fn render<O: RayIntersect>(
         for _ in 0..threads {
             scope.spawn(|| {
                 loop {
-                    // El candado solo se toma para sacar la siguiente franja, no para pintarla
+                    // The lock is only held to take the next band, not to paint it
                     let Some((band, pixels)) = bands.lock().unwrap().next() else {
                         break;
                     };
                     let rows = pixels.len() / pixels_wide;
 
                     for x0 in (0..pixels_wide).step_by(pixel_size) {
-                        // Se lanza el rayo por el centro del cuadrado
+                        // Cast the ray through the center of the square
                         let x = x0 as f32 + pixel_size as f32 * 0.5;
                         let y = (band * pixel_size) as f32 + rows as f32 * 0.5;
 
-                        // Mapea el pixel a espacio de pantalla [-1, 1], con el ajuste por
-                        // aspect ratio
                         let screen_x = ((2.0 * x) / width - 1.0) * aspect_ratio;
                         let screen_y = -(2.0 * y) / height + 1.0;
 
-                        // Direccion del rayo en el espacio de la camara, y luego en el del mundo
+                        // Ray direction in camera space, then in world space
                         let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
                         let ray_direction = basis.to_world(&ray_direction);
 
-                        // El color que devuelve el rayo puede pasar de 1.0, asi que se
-                        // comprime al rango de la pantalla
                         let color = cast_ray(&eye, &ray_direction, scene, 0);
                         let hex = color.tone_map().to_hex();
 
@@ -341,15 +300,15 @@ mod tests {
     use crate::sphere::Sphere;
     use crate::texture::{ImageTexture, Texture};
 
-    // Luz ambiente de las pruebas
+    // Ambient light used by the tests
     const AMBIENTE: f32 = 0.15;
 
-    // Material mate del color dado
+    // Matte material of the given color
     fn mate(color: Color) -> Material {
         Material::new(Texture::Solid(color))
     }
 
-    // Esfera en el eje Z cuyo color rojo identifica cual es: `id` es el valor del canal r
+    // Sphere on the Z axis whose red channel identifies it: `id` is the r value
     fn esfera(z: f32, id: u8) -> Sphere {
         Sphere {
             center: Vec3::new(0.0, 0.0, z),
@@ -358,9 +317,7 @@ mod tests {
         }
     }
 
-    // Luz blanca en el origen: le pega de frente a todo lo que esta sobre el eje Z. Junto
-    // con la luz ambiente suma exactamente 1, asi los colores de estas pruebas salen tal
-    // cual, sin oscurecer ni aclarar.
+    // White light at the origin: hits everything on the Z axis head-on
     fn luz_de_frente() -> Light {
         blanca(Vec3::zeros(), 1.0 - AMBIENTE)
     }
@@ -369,7 +326,7 @@ mod tests {
         Light::new(position, Color::rgb(1.0, 1.0, 1.0), intensity)
     }
 
-    // Canal rojo del color como byte, igual que se veria en pantalla
+    // Red channel of the color as a byte, as it would show on screen
     fn rojo(color: Color) -> u8 {
         (color.to_hex() >> 16) as u8
     }
@@ -378,17 +335,17 @@ mod tests {
         lanzar_en(objects)
     }
 
-    // Igual que `lanzar` pero con cualquier tipo de objeto
+    // Same as `lanzar` but with any object type
     fn lanzar_en<O: RayIntersect>(objects: &[O]) -> Color {
         trazar(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0), objects, &[luz_de_frente()])
     }
 
-    // Cielo de prueba: un degradado de oscuro abajo a claro arriba
+    // Test sky: a gradient from dark at the bottom to bright at the top
     fn cielo() -> Skybox {
         Skybox::from_fn(8, |d| Color::rgb(0.1, 0.2, 0.5 + 0.4 * d.y))
     }
 
-    // Lanza un rayo en una escena con esos objetos y luces y el cielo de prueba
+    // Casts a ray in a scene with those objects and lights and the test sky
     fn trazar<O: RayIntersect>(
         origen: &Vec3,
         direccion: &Vec3,
@@ -411,7 +368,7 @@ mod tests {
         let cerca = esfera(-3.0, 255);
         let lejos = esfera(-5.0, 100);
 
-        // Cerca agregada primero, y despues al reves
+        // Near one added first, then the other way around
         assert_eq!(rojo(lanzar(&[cerca, lejos])), 255);
         assert_eq!(rojo(lanzar(&[esfera(-5.0, 100), esfera(-3.0, 255)])), 255);
     }
@@ -449,7 +406,7 @@ mod tests {
         let en_sombra = trazar(&origen, &direccion, &objects, &[luz_detras]);
 
         assert_eq!(rojo(iluminada), 200);
-        // Sin luz directa solo queda la luz ambiente
+        // Without direct light only ambient light remains
         assert_eq!(rojo(en_sombra), (200.0 * AMBIENTE).round() as u8);
     }
 
@@ -463,7 +420,7 @@ mod tests {
 
     #[test]
     fn el_color_sale_de_la_textura_en_el_punto_de_impacto() {
-        // Ajedrez de rojo y azul: el punto de impacto de frente cae en u = 0.75, v = 0.5
+        // Red and blue checkerboard: the head-on hit point is at u = 0.75, v = 0.5
         let a = Color::new(200, 0, 0);
         let b = Color::new(0, 0, 200);
         let textura = Texture::Checker { a, b, tiles: 4 };
@@ -488,7 +445,7 @@ mod tests {
             },
         };
 
-        // La luz esta justo en la camara, asi que el brillo cae en el centro de la esfera
+        // The light is right at the camera, so the highlight lands at the center of the sphere
         let brillo = |albedo_especular: f32| {
             let objects = [mate_negro(albedo_especular)];
             let luz = blanca(Vec3::zeros(), 1.0);
@@ -510,8 +467,7 @@ mod tests {
                 ..mate(Color::new(255, 255, 255))
             },
         };
-        // Esfera roja detras de la camara: solo se puede ver a traves del reflejo. La cara
-        // que se ve mira hacia la camara, que es donde esta la luz.
+        // Red sphere behind the camera: it can only be seen in the reflection
         let roja = esfera(5.0, 200);
 
         assert_eq!(rojo(lanzar(&[espejo, roja])), 200);
@@ -531,7 +487,7 @@ mod tests {
         };
         let roja = esfera(-8.0, 200);
 
-        // De frente el rayo atraviesa el vidrio sin desviarse y llega a la esfera roja
+        // Head-on, the ray goes through the glass without bending and reaches the red sphere
         assert_eq!(rojo(lanzar(&[vidrio, roja])), 200);
     }
 
@@ -549,7 +505,7 @@ mod tests {
         );
         let roja = Cube::new(Vec3::new(0.0, 0.0, -8.0), 1.0, mate(Color::new(200, 0, 0)));
 
-        // Escena mezclada: los dos cubos y una esfera fuera del camino del rayo
+        // Mixed scene: the two cubes and a sphere out of the ray's path
         let objects: Vec<Box<dyn RayIntersect>> = vec![
             Box::new(vidrio),
             Box::new(roja),
@@ -558,13 +514,13 @@ mod tests {
         assert_eq!(rojo(lanzar_en(&objects)), 200);
     }
 
-    // Piso blanco (cara de arriba en y = 0) y una luz justo encima del punto que se mira
+    // White floor (top face at y = 0) and a light right above the point being looked at
     fn piso() -> Cube {
         Cube::new(Vec3::new(0.0, -5.0, 0.0), 10.0, mate(Color::new(200, 200, 200)))
     }
 
     fn mirar_el_piso<O: RayIntersect>(objects: &[O], lights: &[Light]) -> Color {
-        // Desde arriba y adelante hacia el origen, que queda justo sobre la cara del piso
+        // From above and in front toward the origin, which lies right on the floor face
         let origen = Vec3::new(0.0, 5.0, 3.0);
         trazar(&origen, &normalize(&-origen), objects, lights)
     }
@@ -581,7 +537,7 @@ mod tests {
         let con_bloque = mirar_el_piso(&con_bloque_encima(mate(Color::new(0, 0, 0))), &luz);
 
         assert_eq!(rojo(sin_bloque), 200);
-        // En la sombra solo queda la luz ambiente
+        // Only ambient light remains in the shadow
         assert_eq!(rojo(con_bloque), (200.0 * AMBIENTE).round() as u8);
     }
 
@@ -597,8 +553,7 @@ mod tests {
         assert!(bajo_vidrio > bajo_piedra && bajo_vidrio < 200, "{bajo_vidrio} vs {bajo_piedra}");
     }
 
-    // Luz encima del punto del piso que se mira, con la intensidad justa para que junto con
-    // el ambiente sume 1
+    // Light above the point being looked at; together with ambient it adds up to 1
     fn luz_encima() -> Light {
         blanca(Vec3::new(0.0, 4.0, 0.0), 1.0 - AMBIENTE)
     }
@@ -619,8 +574,7 @@ mod tests {
 
     #[test]
     fn el_mapa_normal_hace_que_una_cara_plana_se_ilumine_distinto_en_cada_pixel() {
-        // Textura gris pareja, pero con un mapa normal de una rampa: cada columna de
-        // pixeles queda inclinada distinto respecto a la luz
+        // Flat texture with a ramp normal map
         let gris = Texture::Image(ImageTexture::from_pixels(1, 1, vec![Color::new(200, 200, 200)]));
         let rampa: Vec<Color> = (0..16).map(|i| Color::new((i * i) as u8, 0, 0)).collect();
         let relieve = Texture::Image(ImageTexture::from_pixels(16, 1, rampa));
@@ -638,8 +592,7 @@ mod tests {
         let lisa = pared(None);
         let con_relieve = pared(NormalMap::from_texture(&relieve, 4.0));
 
-        // La luz llega en diagonal para que la inclinacion se note, y esta muy lejos para que
-        // llegue igual (casi paralela) a toda la cara
+        // Distant diagonal light, almost parallel across the whole face
         let luz = [blanca(Vec3::new(-600.0, 0.0, 600.0), 0.8)];
         let brillo = |cubo: &Cube, x: f32| {
             let cubo = Cube { material: Material { texture: gris, ..cubo.material }, ..*cubo };
@@ -647,10 +600,10 @@ mod tests {
             rojo(trazar(&origen, &Vec3::new(0.0, 0.0, -1.0), &[cubo], &luz))
         };
 
-        // Sin relieve toda la cara recibe (casi) la misma luz
+        // Without relief the whole face gets (almost) the same light
         let diferencia = |cubo: &Cube| brillo(cubo, -0.5).abs_diff(brillo(cubo, 0.5));
         assert!(diferencia(&lisa) <= 1);
-        // Con relieve, la parte donde la rampa es mas empinada mira mas lejos de la luz
+        // With relief, the steeper part of the ramp faces farther away from the light
         assert!(diferencia(&con_relieve) >= 10, "{}", diferencia(&con_relieve));
     }
 
@@ -662,11 +615,11 @@ mod tests {
         };
         let lampara_en = |p: Vec3| Cube::new(p, 1.0, lampara);
 
-        // Sin ninguna luz en la escena, el bloque emisivo igual se ve (y la piedra no)
+        // With no light in the scene the emissive block still shows (and stone doesn't)
         let a_oscuras = lanzar_en::<Cube>(&[lampara_en(Vec3::new(0.0, 0.0, -5.0))]);
         assert!(a_oscuras.r > 0.9, "{a_oscuras:?}");
 
-        // Su luz alumbra el piso de al lado y no el que esta lejos
+        // Its light reaches the nearby floor but not the far one
         let luz = |centro: Vec3| Light::from_block(centro, Color::rgb(1.0, 0.8, 0.4), 1.2, 6.0);
         let junto = Vec3::new(0.0, 1.0, -1.0);
         let cerca = mirar_el_piso(&[piso(), lampara_en(junto)], &[luz(junto)]);
@@ -679,8 +632,7 @@ mod tests {
 
     #[test]
     fn el_bloque_de_la_luz_no_se_hace_sombra_a_si_mismo() {
-        // La luz esta dentro del bloque, justo arriba del punto del piso que se mira: el
-        // rayo de sombra choca con el bloque, pero ese bloque es la luz
+        // The shadow ray hits the block, but that block is the light
         let centro = Vec3::new(0.0, 1.0, 0.0);
         let emisivo = Material {
             emission: 1.0,
@@ -701,7 +653,7 @@ mod tests {
         let de_frente = refract(&Vec3::new(0.0, 0.0, -1.0), &normal, 1.5).unwrap();
         assert!((de_frente - Vec3::new(0.0, 0.0, -1.0)).norm() < 1e-5);
 
-        // Al entrar a un material mas denso el rayo se acerca a la normal
+        // Entering a denser material bends the ray toward the normal
         let entrante = normalize(&Vec3::new(1.0, 0.0, -1.0));
         let doblado = refract(&entrante, &normal, 1.5).unwrap();
         assert!(doblado.x.abs() < entrante.x.abs());
@@ -709,7 +661,7 @@ mod tests {
 
     #[test]
     fn hay_reflexion_total_interna_al_salir_con_un_angulo_muy_cerrado() {
-        // Rayo dentro del vidrio (va en la misma direccion que la normal) muy inclinado
+        // Ray inside the glass (same direction as the normal), very tilted
         let normal = Vec3::new(0.0, 0.0, 1.0);
         let rasante = normalize(&Vec3::new(1.0, 0.0, 0.3));
 

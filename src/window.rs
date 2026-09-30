@@ -1,8 +1,4 @@
-//! Ventana de Windows hecha directamente con la API de Win32, sin librerias externas.
-//!
-//! Se llama a funciones del sistema operativo (user32.dll, gdi32.dll, kernel32.dll) que
-//! vienen con Windows. Solo se usa lo necesario: abrir la ventana, leer teclado y mouse, y
-//! copiar el framebuffer a la pantalla.
+//! Windows window built directly on the Win32 API, without external libraries
 
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -145,7 +141,7 @@ const WM_LBUTTONUP: u32 = 0x0202;
 const WM_MOUSEWHEEL: u32 = 0x020A;
 const WHEEL_DELTA: f32 = 120.0;
 
-/// Teclas que usa el programa, con su codigo de tecla virtual de Windows
+/// Keys used by the program, with their Windows virtual key codes
 #[derive(Clone, Copy)]
 pub enum Key {
     Left = 0x25,
@@ -161,9 +157,7 @@ pub enum Key {
     Escape = 0x1B,
 }
 
-/// Lo que llega de Windows a traves de los mensajes. Windows avisa de cada tecla o
-/// movimiento del mouse llamando a `window_proc`, que no puede recibir `&mut Window`,
-/// asi que el estado vive aca, uno por hilo (la ventana solo se usa desde el principal).
+/// What Windows sends through its messages
 struct Input {
     keys: [bool; 256],
     mouse: Option<(f32, f32)>,
@@ -190,14 +184,14 @@ unsafe extern "system" fn window_proc(
     wparam: WParam,
     lparam: LParam,
 ) -> LResult {
-    // Las coordenadas del mouse vienen en las dos mitades de lparam, con signo
+    // Mouse coordinates come in the two signed halves of lparam
     let low = (lparam & 0xFFFF) as i16 as f32;
     let high = ((lparam >> 16) & 0xFFFF) as i16 as f32;
 
     let handled = INPUT.with_borrow_mut(|input| {
         match msg {
             WM_KEYDOWN | WM_KEYUP => input.keys[wparam & 0xFF] = msg == WM_KEYDOWN,
-            // Si la ventana pierde el foco no llega el "tecla soltada": se sueltan todas
+            // When the window loses focus no "key up" arrives: release every key
             WM_KILLFOCUS => {
                 input.keys = [false; 256];
                 input.mouse_down = false;
@@ -214,7 +208,7 @@ unsafe extern "system" fn window_proc(
 
     unsafe {
         match msg {
-            // Mientras se arrastra, el mouse sigue reportandose aunque salga de la ventana
+            // While dragging, the mouse keeps reporting even outside the window
             WM_LBUTTONDOWN => {
                 SetCapture(hwnd);
             }
@@ -231,19 +225,19 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-/// Texto en UTF-16 terminado en cero, que es como lo pide Win32
+/// Null-terminated UTF-16 text, which is what Win32 expects
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
 pub struct Window {
     hwnd: Handle,
-    /// Rueda del mouse acumulada desde el ultimo `update_with_buffer`
+    /// Mouse wheel accumulated since the last `update_with_buffer`
     scroll: f32,
 }
 
 impl Window {
-    /// Abre una ventana cuya area de dibujo mide `width` x `height` pixeles
+    /// Opens a window whose drawing area is `width` x `height` pixels
     pub fn new(title: &str, width: usize, height: usize) -> Result<Window, String> {
         let class_name = wide("RaytracerWindow");
         let title = wide(title);
@@ -264,7 +258,7 @@ impl Window {
             };
             RegisterClassW(&class);
 
-            // El tamano que se le pasa a Windows incluye bordes y barra de titulo
+            // The size passed to Windows includes borders and the title bar
             let style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
             let mut rect = Rect {
                 right: width as i32,
@@ -303,7 +297,7 @@ impl Window {
         INPUT.with_borrow(|input| input.keys[key as usize])
     }
 
-    /// Cambia el texto de la barra de titulo
+    /// Changes the title bar text
     pub fn set_title(&self, title: &str) {
         let title = wide(title);
         unsafe {
@@ -311,7 +305,7 @@ impl Window {
         }
     }
 
-    /// Posicion del mouse dentro de la ventana, en pixeles
+    /// Mouse position inside the window, in pixels
     pub fn mouse_pos(&self) -> Option<(f32, f32)> {
         INPUT.with_borrow(|input| input.mouse)
     }
@@ -320,13 +314,12 @@ impl Window {
         INPUT.with_borrow(|input| input.mouse_down)
     }
 
-    /// Cuanto giro la rueda desde el cuadro anterior: positivo = hacia adelante
+    /// How much the wheel turned since the previous frame: positive = forward
     pub fn scroll_wheel(&self) -> f32 {
         self.scroll
     }
 
-    /// Muestra el buffer (0xRRGGBB, de arriba hacia abajo) estirado al tamano actual de la
-    /// ventana, y procesa los mensajes pendientes de Windows (teclas, mouse, cerrar)
+    /// Shows the buffer stretched to the window and processes Windows messages
     pub fn update_with_buffer(&mut self, buffer: &[u32], width: usize, height: usize) {
         assert_eq!(buffer.len(), width * height, "el buffer no mide width x height");
 
@@ -343,9 +336,7 @@ impl Window {
             return;
         }
 
-        // 0xRRGGBB en un u32 queda en memoria como B, G, R, 0: justo lo que Windows espera
-        // para un bitmap de 32 bits. La altura negativa indica que la primera fila es la
-        // de arriba.
+        // 0xRRGGBB in memory is B, G, R, 0: exactly what Windows expects
         let info = BitmapInfoHeader {
             size: std::mem::size_of::<BitmapInfoHeader>() as u32,
             width: width as i32,

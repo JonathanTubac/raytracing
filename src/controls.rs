@@ -1,19 +1,16 @@
 use crate::camera::Camera;
 use crate::window::{Key, Window};
 
-// Cuanto rota la camara (radianes) por cada frame con una flecha apretada
+// How much the camera rotates (radians) per frame while an arrow key is held
 const ROTACION_TECLADO: f32 = 0.03;
-// Cuanto rota la camara (radianes) por cada pixel que se arrastra el mouse
+// How much the camera rotates (radians) per pixel the mouse is dragged
 const ROTACION_MOUSE: f32 = 0.01;
-// Factor de zoom por frame con W/S apretada (menor que 1 = acercar)
+// Zoom factor per frame while W/S is held (less than 1 = zoom in)
 const ZOOM_TECLADO: f32 = 0.97;
-// Cuanto acerca/aleja cada "click" de la rueda del mouse
+// How much each mouse wheel "click" zooms in or out
 const ZOOM_RUEDA: f32 = 0.1;
 
-/// Lee el teclado y el mouse y mueve la camara.
-///
-/// - Flechas o arrastrar con click izquierdo: rotar alrededor de las esferas
-/// - W / S o rueda del mouse: acercar / alejar
+/// Reads the keyboard and mouse and moves the camera
 pub struct Controls {
     last_mouse: Option<(f32, f32)>,
 }
@@ -23,13 +20,11 @@ impl Controls {
         Controls { last_mouse: None }
     }
 
-    /// Actualiza la camara segun lo que se esta presionando. Devuelve `true` si la
-    /// camara se movio, o sea si hay que volver a renderizar.
+    /// Updates the camera from what is being pressed
     pub fn update(&mut self, window: &Window, camera: &mut Camera) -> bool {
         let mut moved = false;
 
-        // Rotar con el teclado. Izquierda/derecha giran la camara hacia ese lado,
-        // arriba/abajo la suben o la bajan
+        // Rotate with the keyboard
         let mut yaw = 0.0;
         let mut pitch = 0.0;
         if window.is_key_down(Key::Left) {
@@ -45,7 +40,7 @@ impl Controls {
             pitch -= ROTACION_TECLADO;
         }
 
-        // Rotar arrastrando con el mouse: la escena sigue al cursor
+        // Rotate by dragging the mouse: the scene follows the cursor
         let mouse = window.mouse_pos();
         if window.is_mouse_down() {
             if let (Some((x, y)), Some((last_x, last_y))) = (mouse, self.last_mouse) {
@@ -60,7 +55,7 @@ impl Controls {
             moved = true;
         }
 
-        // Zoom con el teclado y con la rueda
+        // Zoom with the keyboard and the wheel
         if window.is_key_down(Key::W) {
             camera.zoom(ZOOM_TECLADO);
             moved = true;

@@ -1,37 +1,29 @@
-//! Grilla de voxeles: el mundo como una matriz 3D de bloques de lado 1, igual que Minecraft.
-//!
-//! Probar un rayo contra cada bloque de la escena cuesta proporcional a la cantidad de
-//! bloques. En una grilla basta con recorrer, en orden, solo las celdas que el rayo
-//! atraviesa (algoritmo DDA de Amanatides y Woo): el primer bloque que aparece es el
-//! impacto mas cercano. El costo pasa a depender de cuanto viaja el rayo, no de cuantos
-//! bloques hay, asi que agregar bloques al diorama casi no lo hace mas lento.
+//! Voxel grid: the world as a 3D array of unit blocks, just like Minecraft
 
 use crate::cube::face_hit;
 use crate::math::Vec3;
 use crate::ray_intersect::{Intersect, Material, RayIntersect};
 
-/// Celda vacia (aire). Las demas guardan 1 + el indice de su material en la paleta.
+/// Empty cell (air). Others store 1 + the index of their material in the palette.
 const AIRE: u8 = 0;
 
-/// Las 6 celdas vecinas de una celda, que comparten una cara con ella
-const NEIGHBORS: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+/// The 6 neighbors of a cell, the ones sharing a face with it
+const NEIGHBORS: [[i32; 3]; 6] =
+    [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
 pub struct VoxelWorld {
-    /// Esquina minima de la grilla en el mundo. La celda (i, j, k) ocupa el cubo que va
-    /// de `min_corner + (i, j, k)` a `min_corner + (i + 1, j + 1, k + 1)`.
+    /// Minimum corner of the grid in the world
     min_corner: Vec3,
     size: [i32; 3],
     cells: Vec<u8>,
-    /// Materiales distintos de la escena; cada celda guarda un indice a esta lista, asi un
-    /// bloque ocupa un byte aunque su material sea grande
+    /// Distinct materials; each cell stores an index into this list
     palette: Vec<Material>,
 }
 
 impl VoxelWorld {
-    /// Arma la grilla con los bloques dados: cada uno es la posicion entera de su centro y
-    /// su material. Si dos bloques caen en la misma posicion queda el ultimo.
+    /// Grid with the given blocks (center position and material)
     pub fn new(blocks: &[([i32; 3], Material)]) -> VoxelWorld {
-        // La grilla mide justo lo que ocupan los bloques
+        // The grid is exactly as big as the blocks need
         let mut min = [i32::MAX; 3];
         let mut max = [i32::MIN; 3];
         for (position, _) in blocks {
@@ -46,7 +38,7 @@ impl VoxelWorld {
         let size = [max[0] - min[0] + 1, max[1] - min[1] + 1, max[2] - min[2] + 1];
 
         let mut world = VoxelWorld {
-            // El bloque con centro en la posicion entera p ocupa de p - 0.5 a p + 0.5
+            // The block centered at integer position p spans p - 0.5 to p + 0.5
             min_corner: Vec3::new(min[0] as f32, min[1] as f32, min[2] as f32)
                 - Vec3::new(0.5, 0.5, 0.5),
             size,
@@ -71,13 +63,12 @@ impl VoxelWorld {
         world
     }
 
-    /// Cuantos bloques no vacios tiene la grilla
+    /// How many non-empty blocks the grid has
     pub fn block_count(&self) -> usize {
         self.cells.iter().filter(|&&c| c != AIRE).count()
     }
 
-    /// Centro y material de cada bloque emisivo que tiene alguna cara al aire (o a algo
-    /// transparente), para ponerle una luz. Los enterrados no pueden alumbrar nada.
+    /// Emissive blocks with some face open to air, to give them a light
     pub fn emissive_blocks(&self) -> Vec<(Vec3, Material)> {
         let open = |cell: [i32; 3]| {
             let block = self.get(cell);
@@ -110,7 +101,7 @@ impl VoxelWorld {
         Some(((y * sz + z) * sx + x) as usize)
     }
 
-    /// Lo que hay en la celda; afuera de la grilla es todo aire
+    /// What the cell holds; everything outside the grid is air
     fn get(&self, cell: [i32; 3]) -> u8 {
         self.index(cell).map_or(AIRE, |i| self.cells[i])
     }
@@ -123,8 +114,7 @@ impl VoxelWorld {
         block != AIRE && self.material(block).transparency > 0.0
     }
 
-    /// Impacto sobre la cara de `cell` perpendicular a `axis` (del lado maximo si
-    /// `positive`), a distancia `t` sobre el rayo
+    /// Hit on the face of `cell` perpendicular to `axis`, at distance `t`
     #[allow(clippy::too_many_arguments)]
     fn hit(
         &self,
@@ -150,14 +140,12 @@ impl VoxelWorld {
 
 impl RayIntersect for VoxelWorld {
     fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Intersect {
-        // Todo se calcula relativo a la esquina de la grilla, donde la celda (i, j, k) va
-        // de (i, j, k) a (i + 1, j + 1, k + 1)
+        // Coordinates relative to the grid corner
         let o = ray_origin - self.min_corner;
         let d = ray_direction;
         let size = [self.size[0] as f32, self.size[1] as f32, self.size[2] as f32];
 
-        // 1. Donde entra y sale el rayo de la caja que envuelve toda la grilla. Si no la
-        //    toca, no hay nada que recorrer y se ve el cielo directo.
+        // 1. Where the ray enters and leaves the box around the whole grid
         let mut t_enter = 0.0f32;
         let mut t_exit = f32::INFINITY;
         let mut enter_axis = None;
@@ -183,9 +171,7 @@ impl RayIntersect for VoxelWorld {
             return Intersect::empty();
         }
 
-        // 2. Celda de partida y cuanto hay que avanzar sobre el rayo para cruzar a la
-        //    siguiente celda en cada eje (`t_max`) y para atravesar una celda entera
-        //    (`t_delta`)
+        // 2. Starting cell, and ray distance to the next cell boundary on each axis
         let start = o + d * t_enter;
         let mut cell = [0i32; 3];
         let mut step = [0i32; 3];
@@ -204,23 +190,21 @@ impl RayIntersect for VoxelWorld {
             }
         }
 
-        // Si el rayo nace dentro de un bloque (un rayo refractado dentro del agua, o uno
-        // que sigue por el hueco de una hoja), ese bloque es el "medio" en el que viaja
+        // If the ray starts inside a block, that block is the medium it travels in
         let inside = enter_axis.is_none();
         let medium = if inside { self.get(cell) } else { AIRE };
         let medium_is_transparent = self.is_transparent(medium);
 
-        // Eje y distancia en que el rayo entro a la celda actual
+        // Axis and distance at which the ray entered the current cell
         let mut axis = enter_axis.unwrap_or(0);
         let mut t = t_enter;
         let mut first = true;
 
         loop {
-            // La celda de partida no se revisa si el rayo nace dentro de ella
+            // The starting cell is skipped if the ray starts inside it
             if !(first && inside) {
                 let block = self.get(cell);
-                // Cara por la que el rayo entro a esta celda: si avanza en positivo por el
-                // eje, entro por el lado minimo de la celda
+                // Face the ray entered this cell through
                 let entered_positive = step[axis] < 0;
                 let previous = {
                     let mut p = cell;
@@ -229,15 +213,12 @@ impl RayIntersect for VoxelWorld {
                 };
 
                 if medium == AIRE {
-                    // En el aire: el primer bloque que aparece es el impacto
+                    // In the air: the first block found is the hit
                     if block != AIRE {
                         return self.hit(ray_origin, d, t, cell, axis, entered_positive, block);
                     }
                 } else if medium_is_transparent {
-                    // Dentro del agua o el vidrio: las caras entre dos bloques iguales no
-                    // existen (un estanque es un solo volumen de agua, no muchos cubos).
-                    // Al llegar a algo distinto, si es solido se ve eso; si no, el rayo sale
-                    // del medio por su cara.
+                    // Inside water or glass, faces between identical blocks are ignored
                     if block != medium {
                         if block != AIRE && !self.is_transparent(block) {
                             return self.hit(ray_origin, d, t, cell, axis, entered_positive, block);
@@ -246,14 +227,13 @@ impl RayIntersect for VoxelWorld {
                         return self.hit(ray_origin, d, t, previous, axis, exit_positive, medium);
                     }
                 } else {
-                    // Dentro de un bloque opaco (por el hueco de una hoja): se ve la cara de
-                    // ese bloque por donde sale el rayo
+                    // Inside an opaque block, the exit face is seen
                     return self.hit(ray_origin, d, t, previous, axis, !entered_positive, medium);
                 }
             }
             first = false;
 
-            // 3. Paso a la celda vecina por el eje cuyo borde esta mas cerca
+            // 3. Step to the neighbor cell along the axis with the nearest boundary
             axis = if t_max[0] < t_max[1] {
                 if t_max[0] < t_max[2] { 0 } else { 2 }
             } else if t_max[1] < t_max[2] {
@@ -265,13 +245,12 @@ impl RayIntersect for VoxelWorld {
             cell[axis] += step[axis];
             t_max[axis] += t_delta[axis];
 
-            // Afuera de la grilla es aire. Si el rayo venia dentro de un bloque, todavia
-            // hay que devolver la cara por la que sale; si no, ya no hay nada que ver.
+            // Outside the grid is air
             let outside = cell[axis] < 0 || cell[axis] >= self.size[axis];
             if outside && medium == AIRE {
                 return Intersect::empty();
             }
-            // Una direccion nula no avanza por ningun eje; sin esto no terminaria nunca
+            // A zero direction never advances on any axis; without this it would never end
             if !t.is_finite() {
                 return Intersect::empty();
             }
@@ -299,7 +278,7 @@ mod tests {
         }
     }
 
-    /// Generador de numeros pseudoaleatorios simple (LCG), para no depender de librerias
+    /// Simple pseudorandom number generator (LCG), to avoid depending on libraries
     struct Azar(u64);
 
     impl Azar {
@@ -315,8 +294,7 @@ mod tests {
 
     #[test]
     fn da_el_mismo_impacto_que_probar_cubo_por_cubo() {
-        // Mundo al azar de bloques opacos de varios colores, y cientos de rayos al azar
-        // desde afuera: la grilla tiene que dar el mismo impacto que la fuerza bruta
+        // The grid must give the same hit as testing cube by cube
         let mut azar = Azar(7);
         let mut bloques = Vec::new();
         for x in -4..4 {
@@ -361,7 +339,7 @@ mod tests {
                 }
             }
         }
-        // Que la prueba no pase solo porque los rayos no chocan con nada
+        // Make sure the test doesn't pass just because the rays miss everything
         assert!(con_impacto > 100, "{con_impacto}");
     }
 
@@ -383,7 +361,7 @@ mod tests {
 
     #[test]
     fn el_agua_de_varios_bloques_es_un_solo_volumen() {
-        // Tres bloques de agua en fila y piedra al final
+        // Three water blocks in a row with stone at the end
         let bloques = [
             ([0, 0, -2], agua()),
             ([0, 0, -3], agua()),
@@ -392,18 +370,18 @@ mod tests {
         ];
         let mundo = VoxelWorld::new(&bloques);
 
-        // Desde afuera se ve la superficie del agua
+        // From outside, the water surface is seen
         let entrada = mundo.ray_intersect(&Vec3::zeros(), &Vec3::new(0.0, 0.0, -1.0));
         assert!((entrada.distance - 1.5).abs() < 1e-5);
         assert_eq!(entrada.material, agua());
 
-        // Desde adentro, el rayo cruza las caras entre bloques de agua y llega a la piedra
+        // From inside, the ray crosses the faces between water blocks and reaches the stone
         let dentro = Vec3::new(0.0, 0.0, -1.6);
         let fondo = mundo.ray_intersect(&dentro, &Vec3::new(0.0, 0.0, -1.0));
         assert!((fondo.distance - 2.9).abs() < 1e-4);
         assert_eq!(fondo.material, mate(9));
 
-        // Y hacia arriba sale por la superficie, con la normal hacia afuera del agua
+        // And upward it exits through the surface, with the normal pointing out of the water
         let salida = mundo.ray_intersect(&dentro, &Vec3::new(0.0, 1.0, 0.0));
         assert!((salida.distance - 0.5).abs() < 1e-4);
         assert_eq!(salida.material, agua());
@@ -415,7 +393,7 @@ mod tests {
         let mundo = VoxelWorld::new(&[([0, 0, 0], mate(1)), ([0, 0, -1], mate(2))]);
         let hit = mundo.ray_intersect(&Vec3::new(0.0, 0.0, 0.2), &Vec3::new(0.0, 0.0, -1.0));
 
-        // Sale del bloque en el que esta, aunque al lado haya otro
+        // It exits the block it is in, even with another block next to it
         assert!((hit.distance - 0.7).abs() < 1e-5);
         assert_eq!(hit.material, mate(1));
         assert!((hit.normal - Vec3::new(0.0, 0.0, -1.0)).norm() < 1e-5);

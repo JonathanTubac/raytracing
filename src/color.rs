@@ -1,10 +1,6 @@
 use std::ops::{Add, AddAssign, Mul};
 
-/// Color con canales `f32`, donde 1.0 es el maximo que puede mostrar la pantalla.
-///
-/// Mientras se calcula la luz los canales pueden pasar de 1.0 (un brillo muy fuerte, una
-/// luz emisiva) sin que se pierda nada; recien al mostrarlo se comprime al rango de la
-/// pantalla con `tone_map` y se convierte a bytes con `to_hex`.
+/// Color with `f32` channels, where 1.0 is the brightest the screen can show
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: f32,
@@ -12,16 +8,16 @@ pub struct Color {
     pub b: f32,
 }
 
-// Hasta este valor el tone mapping deja el color igual; por encima lo comprime
+// Tone mapping leaves colors up to this value unchanged and compresses above it
 const RODILLA: f32 = 0.8;
 
 impl Color {
-    /// Color a partir de sus bytes (0 a 255 por canal), como se escriben normalmente
+    /// Color from its bytes (0 to 255 per channel), as they are usually written
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Color::rgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
     }
 
-    /// Color a partir de sus canales en punto flotante (1.0 = maximo de la pantalla)
+    /// Color from floating point channels (1.0 = screen maximum)
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
         Color { r, g, b }
     }
@@ -30,14 +26,12 @@ impl Color {
         Color::rgb(0.0, 0.0, 0.0)
     }
 
-    /// Mezcla dos colores: `t` = 0 da `a`, `t` = 1 da `b`
+    /// Blends two colors: `t` = 0 gives `a`, `t` = 1 gives `b`
     pub fn lerp(a: Color, b: Color, t: f32) -> Color {
         a * (1.0 - t) + b * t
     }
 
-    /// Comprime los canales que pasan de `RODILLA` para que se acerquen a 1.0 sin llegar
-    /// nunca de golpe. Asi un brillo muy fuerte se ve blanco y suave en vez de un parche
-    /// plano saturado, y los colores normales (por debajo de la rodilla) no cambian.
+    /// Smoothly compresses channels above `RODILLA` toward 1.0
     pub fn tone_map(&self) -> Color {
         let canal = |c: f32| {
             if c <= RODILLA {
@@ -50,15 +44,14 @@ impl Color {
         Color::rgb(canal(self.r), canal(self.g), canal(self.b))
     }
 
-    /// Convierte el color a 0xRRGGBB, que es el formato que usa el framebuffer. Lo que se
-    /// sale de 0..1 se recorta.
+    /// Converts the color to 0xRRGGBB, the framebuffer format
     pub fn to_hex(&self) -> u32 {
         let byte = |c: f32| (c * 255.0).round().clamp(0.0, 255.0) as u32;
         (byte(self.r) << 16) | (byte(self.g) << 8) | byte(self.b)
     }
 }
 
-/// Oscurece (factor < 1) o aclara (factor > 1) un color
+/// Darkens (factor < 1) or brightens (factor > 1) a color
 impl Mul<f32> for Color {
     type Output = Color;
 
@@ -67,8 +60,7 @@ impl Mul<f32> for Color {
     }
 }
 
-/// Multiplica canal por canal: una luz de color sobre una superficie de color. Una luz
-/// roja sobre una superficie verde da negro.
+/// Multiplies channel by channel: a colored light on a colored surface
 impl Mul for Color {
     type Output = Color;
 
@@ -77,7 +69,7 @@ impl Mul for Color {
     }
 }
 
-/// Suma dos colores; el resultado puede pasar de 1.0
+/// Adds two colors; the result can go above 1.0
 impl Add for Color {
     type Output = Color;
 

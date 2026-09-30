@@ -1,22 +1,17 @@
-//! Lectura y escritura de imagenes sin librerias externas.
-//!
-//! - Las texturas se leen en PNG (las de Minecraft vienen asi) o en PPM binario (P6).
-//! - Las capturas se guardan en PNG, que se ve en GitHub y en cualquier visor. Se escribe
-//!   sin comprimir (bloques "stored" de deflate), que es valido y mucho mas simple.
+//! Image reading and writing without external libraries
 
 use std::fs;
 
 use crate::inflate::zlib_decompress;
 
-/// Imagen en memoria: pixeles RGBA (el ultimo es la opacidad, 255 = opaco) fila por fila
-/// de arriba hacia abajo
+/// RGBA image in memory, row by row from top to bottom
 pub struct Image {
     pub width: usize,
     pub height: usize,
     pub pixels: Vec<[u8; 4]>,
 }
 
-/// Lee una imagen PNG o PPM, segun la extension del archivo
+/// Reads a PNG or PPM image, depending on the file extension
 pub fn load_image(path: &str) -> Result<Image, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     if path.ends_with(".png") {
@@ -26,10 +21,9 @@ pub fn load_image(path: &str) -> Result<Image, String> {
     }
 }
 
-/// PPM binario (P6) con 255 como valor maximo por canal
+/// Binary PPM (P6) with 255 as the maximum value per channel
 fn parse_ppm(bytes: &[u8]) -> Result<Image, String> {
-    // El encabezado son 4 palabras separadas por espacios ("P6", ancho, alto, maximo);
-    // lo que va de un '#' al final de la linea es un comentario
+    // Header: "P6", width, height and maximum; anything after a '#' is a comment
     let mut pos = 0;
     let mut next_word = || -> Result<String, String> {
         loop {
@@ -62,7 +56,7 @@ fn parse_ppm(bytes: &[u8]) -> Result<Image, String> {
         return Err(format!("solo se soporta 255 como valor maximo, no {max}"));
     }
 
-    // Un unico espacio separa el encabezado de los pixeles
+    // A single whitespace separates the header from the pixels
     let data = bytes.get(pos + 1..).unwrap_or(&[]);
     if data.len() < width * height * 3 {
         return Err("el PPM tiene menos pixeles de los que dice".into());
@@ -79,11 +73,7 @@ fn parse_ppm(bytes: &[u8]) -> Result<Image, String> {
 
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
-/// PNG sin entrelazar, con cualquier tipo de color y 1, 2, 4, 8 o 16 bits por canal.
-///
-/// Un PNG es una firma y una lista de bloques ("chunks"): IHDR trae el tamano y el formato,
-/// PLTE la paleta, tRNS la transparencia de las imagenes sin canal alfa, e IDAT los pixeles
-/// comprimidos con zlib (pueden venir partidos en varios IDAT).
+/// Non-interlaced PNG, any color type, 1, 2, 4, 8 or 16 bits per channel
 fn decode_png(bytes: &[u8]) -> Result<Image, String> {
     if !bytes.starts_with(PNG_SIGNATURE) {
         return Err("no es un PNG".into());
@@ -107,7 +97,7 @@ fn decode_png(bytes: &[u8]) -> Result<Image, String> {
             b"IEND" => break,
             _ => {}
         }
-        // Largo, tipo, datos y CRC
+        // Length, type, data and CRC
         pos += 12 + len;
     }
 
@@ -121,7 +111,7 @@ struct PngHeader {
     width: usize,
     height: usize,
     bit_depth: usize,
-    /// 0 = gris, 2 = RGB, 3 = paleta, 4 = gris + alfa, 6 = RGBA
+    /// 0 = gray, 2 = RGB, 3 = palette, 4 = gray + alpha, 6 = RGBA
     color_type: u8,
 }
 
@@ -145,7 +135,7 @@ impl PngHeader {
         Ok(header)
     }
 
-    /// Cuantos valores tiene cada pixel
+    /// How many values each pixel has
     fn channels(&self) -> usize {
         match self.color_type {
             0 | 3 => 1,
@@ -156,24 +146,23 @@ impl PngHeader {
         }
     }
 
-    /// Bytes por fila, sin contar el byte del filtro. Con menos de 8 bits por valor, varios
-    /// pixeles comparten un byte.
+    /// Bytes per row, not counting the filter byte
     fn stride(&self) -> usize {
         (self.width * self.channels() * self.bit_depth).div_ceil(8)
     }
 
-    /// Distancia en bytes al mismo valor del pixel anterior (minimo 1), que usan los filtros
+    /// Byte distance to the same value of the previous pixel (at least 1), used by filters
     fn bytes_per_pixel(&self) -> usize {
         (self.channels() * self.bit_depth).div_ceil(8)
     }
 
-    /// Lee el valor numero `index` de una fila, sea del tamano que sea
+    /// Reads value number `index` from a row, whatever its size
     fn sample(&self, row: &[u8], index: usize) -> u16 {
         match self.bit_depth {
             8 => row[index] as u16,
             16 => u16::from_be_bytes([row[index * 2], row[index * 2 + 1]]),
             bits => {
-                // Los valores de menos de 8 bits vienen pegados, el primero en los bits altos
+                // Values under 8 bits are packed together, the first one in the high bits
                 let bit = index * bits;
                 let shift = 8 - bits - bit % 8;
                 ((row[bit / 8] >> shift) as u16) & ((1 << bits) - 1)
@@ -181,7 +170,7 @@ impl PngHeader {
         }
     }
 
-    /// Lleva un valor de `bit_depth` bits a 0..=255
+    /// Scales a `bit_depth` bit value to 0..=255
     fn to_byte(&self, value: u16) -> u8 {
         match self.bit_depth {
             16 => (value >> 8) as u8,
@@ -195,7 +184,7 @@ impl PngHeader {
         palette: &[u8],
         transparency: &[u8],
     ) -> Result<Image, String> {
-        // Con tRNS en gris o RGB, un unico color (en su valor original) es el transparente
+        // With tRNS in gray or RGB images, a single color (in its original value) is transparent
         let transparent_value = |i: usize| -> Option<u16> {
             transparency.get(i * 2..i * 2 + 2).map(|b| u16::from_be_bytes([b[0], b[1]]))
         };
@@ -235,9 +224,7 @@ impl PngHeader {
     }
 }
 
-/// Deshace los filtros de cada fila. Antes de comprimir, el PNG guarda cada byte como la
-/// diferencia con un vecino (el de la izquierda, el de arriba, su promedio...), porque esas
-/// diferencias suelen ser chicas y se comprimen mejor.
+/// Undoes each row's filter
 fn unfilter(raw: &[u8], header: &PngHeader) -> Result<Vec<u8>, String> {
     let stride = header.stride();
     let bpp = header.bytes_per_pixel();
@@ -272,7 +259,7 @@ fn unfilter(raw: &[u8], header: &PngHeader) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Elige el vecino (izquierda, arriba o arriba-izquierda) mas cercano a a + b - c
+/// Picks the neighbor (left, up or up-left) closest to a + b - c
 fn paeth(a: u8, b: u8, c: u8) -> u8 {
     let p = a as i16 + b as i16 - c as i16;
     let (pa, pb, pc) = ((p - a as i16).abs(), (p - b as i16).abs(), (p - c as i16).abs());
@@ -285,13 +272,13 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
     }
 }
 
-/// Guarda pixeles en formato 0xRRGGBB (el del framebuffer) como PNG
+/// Saves 0xRRGGBB pixels (the framebuffer format) as a PNG
 pub fn save_png(path: &str, width: usize, height: usize, pixels: &[u32]) -> std::io::Result<()> {
     fs::write(path, encode_png(width, height, pixels))
 }
 
 fn encode_png(width: usize, height: usize, pixels: &[u32]) -> Vec<u8> {
-    // Cada fila empieza con el tipo de filtro (0 = ninguno) y sigue con los bytes RGB
+    // Each row starts with the filter type (0 = none) followed by the RGB bytes
     let mut raw = Vec::with_capacity(height * (1 + width * 3));
     for row in pixels.chunks_exact(width) {
         raw.push(0);
@@ -302,7 +289,7 @@ fn encode_png(width: usize, height: usize, pixels: &[u32]) -> Vec<u8> {
 
     let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
 
-    // IHDR: tamano, 8 bits por canal, tipo de color 2 (RGB), sin entrelazado
+    // IHDR: size, 8 bits per channel, color type 2 (RGB), no interlacing
     let mut header = Vec::new();
     header.extend_from_slice(&(width as u32).to_be_bytes());
     header.extend_from_slice(&(height as u32).to_be_bytes());
@@ -314,7 +301,7 @@ fn encode_png(width: usize, height: usize, pixels: &[u32]) -> Vec<u8> {
     png
 }
 
-/// Un bloque de PNG: largo, tipo, datos y el CRC del tipo mas los datos
+/// A PNG chunk: length, type, data and the CRC of the type plus the data
 fn write_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     png.extend_from_slice(&(data.len() as u32).to_be_bytes());
     let start = png.len();
@@ -324,8 +311,7 @@ fn write_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     png.extend_from_slice(&crc.to_be_bytes());
 }
 
-/// Envuelve los datos en formato zlib sin comprimir: bloques de hasta 65535 bytes
-/// guardados tal cual, y al final la suma de verificacion Adler-32
+/// Uncompressed zlib format: stored blocks and the Adler-32 checksum
 fn zlib_stored(data: &[u8]) -> Vec<u8> {
     let mut out = vec![0x78, 0x01];
     let blocks: Vec<&[u8]> = data.chunks(65535).collect();
@@ -389,7 +375,7 @@ mod tests {
 
     #[test]
     fn crc_y_adler_dan_los_valores_conocidos() {
-        // Valores de referencia de zlib para la cadena "123456789"
+        // zlib reference values for the string "123456789"
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         assert_eq!(adler32(b"123456789"), 0x091E_01DE);
     }
@@ -427,10 +413,7 @@ mod tests {
 
     #[test]
     fn las_texturas_de_minecraft_se_leen_igual_que_con_pil() {
-        // Sumas de control calculadas con la libreria PIL de Python sobre los mismos
-        // archivos: la suma de todos los bytes RGBA y una suma ponderada por posicion, que
-        // cambia si un solo pixel sale distinto o en otro lugar. Cubren PNG con paleta de 4
-        // y 8 bits, gris de 1 y 8 bits, RGB y RGBA, con y sin transparencia.
+        // Checksums computed with Python's PIL on the same files
         let esperado = [
             ("bricks", 150165, 61716026),
             ("cobblestone", 163249, 66882931),
@@ -454,7 +437,7 @@ mod tests {
             ("stone", 161700, 66822126),
             ("stone_bricks", 159163, 65265800),
             ("water_still", 5826636, 849043403),
-            // Del cielo: el sol (paleta) y las nubes (gris de 1 bit con un color transparente)
+            // From the sky: the sun (palette) and the clouds (1 bit gray with a transparent color)
             ("sun", 325228, 727741800),
             ("clouds", 18465060, 887664418),
         ];

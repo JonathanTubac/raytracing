@@ -1,11 +1,6 @@
-//! Descompresor de deflate (RFC 1951), el formato de compresion que usan los PNG.
-//!
-//! Los datos comprimidos son una serie de bloques. Cada bloque viene guardado tal cual o
-//! codificado con codigos de Huffman: los simbolos frecuentes usan menos bits. Un simbolo
-//! es un byte literal, el fin del bloque, o una orden de "copia `largo` bytes que ya
-//! salieron, empezando `distancia` bytes atras".
+//! Deflate decompressor (RFC 1951), the compression format PNG uses
 
-/// Lee bits de a uno, empezando por el bit menos significativo de cada byte
+/// Reads bits one at a time, starting with the least significant bit of each byte
 struct BitReader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -28,7 +23,7 @@ impl<'a> BitReader<'a> {
         Ok(value as u32)
     }
 
-    /// Lee `count` bits como un numero, el primero que se lee es el menos significativo
+    /// Reads `count` bits as a number; the first bit read is the least significant
     fn bits(&mut self, count: u32) -> Result<u32, String> {
         let mut value = 0;
         for i in 0..count {
@@ -37,7 +32,7 @@ impl<'a> BitReader<'a> {
         Ok(value)
     }
 
-    /// Salta lo que queda del byte actual (los bloques sin comprimir empiezan en un byte)
+    /// Skips the rest of the current byte (stored blocks start on a byte boundary)
     fn align(&mut self) {
         if self.bit != 0 {
             self.bit = 0;
@@ -46,12 +41,11 @@ impl<'a> BitReader<'a> {
     }
 }
 
-/// Codigo de Huffman canonico: solo hace falta saber cuantos bits usa cada simbolo para
-/// reconstruir todos los codigos
+/// Canonical Huffman code: the code length of each symbol is enough
 struct Huffman {
-    /// Cuantos simbolos hay de cada largo (de 0 a 15 bits)
+    /// How many symbols there are of each length (0 to 15 bits)
     counts: [u16; 16],
-    /// Los simbolos ordenados por largo de codigo y, a igual largo, por valor
+    /// Symbols sorted by code length and, for equal lengths, by value
     symbols: Vec<u16>,
 }
 
@@ -63,7 +57,7 @@ impl Huffman {
         }
         counts[0] = 0;
 
-        // Donde empieza cada largo dentro de `symbols`
+        // Where each length starts inside `symbols`
         let mut offsets = [0u16; 16];
         for len in 1..15 {
             offsets[len + 1] = offsets[len] + counts[len];
@@ -80,8 +74,7 @@ impl Huffman {
         Huffman { counts, symbols }
     }
 
-    /// Lee bits hasta completar un codigo. Los codigos de un mismo largo son numeros
-    /// consecutivos, asi que basta con ver si el codigo leido cae en el rango de ese largo.
+    /// Reads bits until a code is complete
     fn decode(&self, reader: &mut BitReader) -> Result<u16, String> {
         let mut code: i32 = 0;
         let mut first: i32 = 0;
@@ -101,8 +94,7 @@ impl Huffman {
     }
 }
 
-// Para los simbolos de largo (257..=285) y de distancia (0..=29): el valor base y cuantos
-// bits extra se leen para sumarle
+// Base value and extra bits of the length and distance symbols
 const LENGTH_BASE: [u16; 29] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
     131, 163, 195, 227, 258,
@@ -119,12 +111,11 @@ const DIST_EXTRA: [u8; 30] = [
     13,
 ];
 
-// Orden en que vienen los largos del codigo que describe a los otros dos codigos
+// Order of the code lengths of the code that describes the other two codes
 const CODE_LENGTH_ORDER: [usize; 19] =
     [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-/// Descomprime datos en formato zlib: 2 bytes de encabezado, los datos en deflate y
-/// 4 bytes de suma de verificacion al final (que no se revisa)
+/// Decompresses zlib: 2 header bytes, deflate data and the final checksum (not checked)
 pub fn zlib_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() < 2 || data[0] & 0x0F != 8 {
         return Err("no es un flujo zlib con deflate".into());
@@ -156,7 +147,7 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Bloque sin comprimir: largo, su complemento, y los bytes tal cual
+/// Stored block: length, its complement, and the raw bytes
 fn stored_block(reader: &mut BitReader, out: &mut Vec<u8>) -> Result<(), String> {
     reader.align();
     let header = reader
@@ -176,7 +167,7 @@ fn stored_block(reader: &mut BitReader, out: &mut Vec<u8>) -> Result<(), String>
     Ok(())
 }
 
-/// Codigos fijos definidos por el estandar, para bloques que no traen los suyos
+/// Fixed codes defined by the standard, for blocks that don't carry their own
 fn fixed_codes() -> (Huffman, Huffman) {
     let mut lengths = [0u8; 288];
     lengths[..144].fill(8);
@@ -186,8 +177,7 @@ fn fixed_codes() -> (Huffman, Huffman) {
     (Huffman::new(&lengths), Huffman::new(&[5; 30]))
 }
 
-/// Codigos que vienen dentro del bloque. Los largos de los codigos vienen, a su vez,
-/// comprimidos con un tercer codigo de Huffman mas chico.
+/// Codes carried inside the block
 fn dynamic_codes(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
     let literal_count = reader.bits(5)? as usize + 257;
     let distance_count = reader.bits(5)? as usize + 1;
@@ -204,13 +194,13 @@ fn dynamic_codes(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
         let symbol = code_length_code.decode(reader)?;
         match symbol {
             0..=15 => lengths.push(symbol as u8),
-            // 16: repetir el largo anterior de 3 a 6 veces
+            // 16: repeat the previous length 3 to 6 times
             16 => {
                 let previous = *lengths.last().ok_or("repeticion sin largo anterior")?;
                 let times = 3 + reader.bits(2)?;
                 lengths.extend(std::iter::repeat_n(previous, times as usize));
             }
-            // 17 y 18: repetir un largo cero, de 3 a 10 veces o de 11 a 138 veces
+            // 17 and 18: repeat a zero length, 3 to 10 times or 11 to 138 times
             17 => {
                 let times = 3 + reader.bits(3)?;
                 lengths.extend(std::iter::repeat_n(0, times as usize));
@@ -258,8 +248,7 @@ fn huffman_block(
                     return Err("la distancia apunta antes del inicio".into());
                 }
 
-                // Se copia byte por byte porque la copia puede pisar lo que ella misma va
-                // escribiendo (distancia 1 y largo 10 repite el ultimo byte 10 veces)
+                // Byte by byte, because the copy can overlap what it is writing
                 let start = out.len() - distance;
                 for k in 0..length {
                     out.push(out[start + k]);
@@ -275,14 +264,14 @@ mod tests {
 
     #[test]
     fn lee_un_bloque_sin_comprimir() {
-        // Bloque final (1), tipo 0; largo 3 y su complemento; "abc"
+        // Final block (1), type 0; length 3 and its complement; "abc"
         let datos = [0x01, 0x03, 0x00, 0xFC, 0xFF, b'a', b'b', b'c'];
         assert_eq!(inflate(&datos).unwrap(), b"abc");
     }
 
     #[test]
     fn lee_un_bloque_con_codigos_fijos_y_copias() {
-        // "hola hola hola" comprimido por zlib (nivel 9): usa codigos fijos y una copia
+        // "hola hola hola" compressed by zlib (level 9): uses fixed codes and a copy
         let datos = [
             0x78, 0xDA, 0xCB, 0xC8, 0xCF, 0x49, 0x54, 0xC8, 0x80, 0x11, 0x00, 0x26, 0xFC, 0x05,
             0x2D,
@@ -292,8 +281,7 @@ mod tests {
 
     #[test]
     fn lee_un_bloque_con_codigos_dinamicos() {
-        // 300 letras al azar (con muchas mas 'a' que 'e') comprimidas por zlib, que al ver
-        // frecuencias tan disparejas elige armar sus propios codigos de Huffman
+        // Uneven frequencies: zlib builds its own Huffman codes
         let datos = [
             0x78, 0xDA, 0x2D, 0x90, 0x81, 0x0D, 0x44, 0x31, 0x08, 0x42, 0x57, 0x61,
             0x35, 0x50, 0xF7, 0x5F, 0xE1, 0x1E, 0xFD, 0xD7, 0xA4, 0xA9, 0x82, 0x82,
