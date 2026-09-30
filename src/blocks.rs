@@ -405,7 +405,8 @@ impl Blocks {
             },
         };
 
-        // Relief of each block. Glass and water stay flat so the refraction is clear.
+        // Relief of each block. Glass and water stay flat so the refraction is clear, and
+        // polished blocks (gold, diamond, obsidian, amethyst) so the reflection is clean.
         Blocks {
             grass: con_relieve(b.grass, 0.8),
             dirt: con_relieve(b.dirt, 1.5),
@@ -415,9 +416,6 @@ impl Blocks {
             log: con_relieve(b.log, 2.5),
             leaves: con_relieve(b.leaves, 1.0),
             sand: con_relieve(b.sand, 1.2),
-            diamond: con_relieve(b.diamond, 2.0),
-            gold: con_relieve(b.gold, 2.0),
-            obsidian: con_relieve(b.obsidian, 2.0),
             bedrock: con_relieve(b.bedrock, 3.0),
             deepslate: con_relieve(b.deepslate, 2.5),
             gravel: con_relieve(b.gravel, 2.0),
@@ -427,7 +425,6 @@ impl Blocks {
             diamond_ore: con_relieve(b.diamond_ore, 2.5),
             deepslate_gold_ore: con_relieve(b.deepslate_gold_ore, 2.5),
             deepslate_diamond_ore: con_relieve(b.deepslate_diamond_ore, 2.5),
-            amethyst: con_relieve(b.amethyst, 1.5),
             netherrack: con_relieve(b.netherrack, 2.5),
             nether_bricks: con_relieve(b.nether_bricks, 3.0),
             soul_sand: con_relieve(b.soul_sand, 2.0),

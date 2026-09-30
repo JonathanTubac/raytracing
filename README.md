@@ -105,7 +105,7 @@ así que la escena es siempre la misma pero no se ve hecha a mano.
 | Materiales (más de 5) | 41 bloques distintos, cada uno con su textura y sus propios parámetros (tabla abajo) |
 | Refracción | Agua (índice 1.33) del estanque y la caverna, vidrio (1.5) del tragaluz y las ventanas |
 | Reflexión | Oro, diamante, obsidiana, amatista, obsidiana llorona y el agua |
-| Mapas normales | Piedra, minerales, deepslate, madera, netherrack, etc. El vidrio y el agua quedan lisos para que la refracción se vea clara. Tecla N para comparar |
+| Mapas normales | Piedra, minerales, deepslate, madera, netherrack, etc. El vidrio y el agua quedan lisos para que la refracción se vea clara, y el oro, el diamante, la obsidiana y la amatista para que el reflejo se vea limpio. Tecla N para comparar |
 | Material emisivo | Lava, glowstone, linterna marina, portal, shroomlight, magma, obsidiana llorona. Además de brillar, iluminan lo que tienen cerca |
 | Skybox | Cubemap generado con el sol, la luna, las nubes y las estrellas de Minecraft; niebla roja con ceniza en el Nether |
 | Programación paralela y optimización | Ver la sección de optimización |
@@ -122,10 +122,10 @@ propio. Algunos de los bloques con sus parámetros:
 | Tablones | 0.85, 0.15 | 25 | 0 | 0 | — | 0 | 2.0 |
 | Vidrio | 0.8, 0.6 | 150 | 0.9 | 0.1 | 1.5 | 0 | — |
 | Agua | 0.35, 0.5 | 90 | 0.7 | 0.2 | 1.33 | 0 | — |
-| Oro | 0.7, 0.8 | 120 | 0 | 0.25 | — | 0 | 2.0 |
-| Diamante | 0.7, 0.6 | 250 | 0 | 0.3 | — | 0 | 2.0 |
-| Obsidiana | 0.8, 0.7 | 400 | 0 | 0.2 | — | 0 | 2.0 |
-| Amatista | 0.75, 0.6 | 180 | 0 | 0.2 | — | 0 | 1.5 |
+| Oro | 0.7, 0.8 | 120 | 0 | 0.25 | — | 0 | — |
+| Diamante | 0.7, 0.6 | 250 | 0 | 0.3 | — | 0 | — |
+| Obsidiana | 0.8, 0.7 | 400 | 0 | 0.2 | — | 0 | — |
+| Amatista | 0.75, 0.6 | 180 | 0 | 0.2 | — | 0 | — |
 | Glowstone | 0.4, 0.0 | 32 | 0 | 0 | — | 0.9 | — |
 | Lava | 0.3, 0.15 | 30 | 0 | 0 | — | 1.1 | — |
 | Portal del Nether | 0.6, 0.3 | 60 | 0.55 | 0 | 1.0 | 0.8 | — |
