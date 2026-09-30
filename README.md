@@ -96,7 +96,7 @@ así que la escena es siempre la misma pero no se ve hecha a mano.
 | Materiales (más de 5) | 41 bloques distintos, cada uno con su textura y sus propios parámetros (tabla abajo) |
 | Refracción | Agua (índice 1.33) del estanque y la caverna, vidrio (1.5) del tragaluz y las ventanas |
 | Reflexión | Oro, diamante, obsidiana, amatista, obsidiana llorona y el agua |
-| Mapas normales | Piedra, minerales, deepslate, madera, netherrack, etc.; ondas suaves en el agua. Tecla N para comparar |
+| Mapas normales | Piedra, minerales, deepslate, madera, netherrack, etc. El vidrio y el agua quedan lisos para que la refracción se vea clara. Tecla N para comparar |
 | Material emisivo | Lava, glowstone, linterna marina, portal, shroomlight, magma, obsidiana llorona. Además de brillar, iluminan lo que tienen cerca |
 | Skybox | Cubemap generado con el sol, la luna, las nubes y las estrellas de Minecraft; niebla roja con ceniza en el Nether |
 | Programación paralela y optimización | Ver la sección de optimización |
@@ -112,7 +112,7 @@ propio. Algunos de los bloques con sus parámetros:
 | Piedra | 0.9, 0.1 | 20 | 0 | 0 | — | 0 | 2.5 |
 | Tablones | 0.85, 0.15 | 25 | 0 | 0 | — | 0 | 2.0 |
 | Vidrio | 0.8, 0.6 | 150 | 0.9 | 0.1 | 1.5 | 0 | — |
-| Agua | 0.35, 0.5 | 90 | 0.7 | 0.2 | 1.33 | 0 | ondas |
+| Agua | 0.35, 0.5 | 90 | 0.7 | 0.2 | 1.33 | 0 | — |
 | Oro | 0.7, 0.8 | 120 | 0 | 0.25 | — | 0 | 2.0 |
 | Diamante | 0.7, 0.6 | 250 | 0 | 0.3 | — | 0 | 2.0 |
 | Obsidiana | 0.8, 0.7 | 400 | 0 | 0.2 | — | 0 | 2.0 |
@@ -181,7 +181,7 @@ Medido en modo `release` a 800 × 600 en un procesador de 12 hilos (`cargo run -
 | `viaje.rs` | Animación del viaje por el portal |
 | `grabacion.rs` | Guion del video |
 
-`cargo test` corre 99 pruebas.
+`cargo test` corre 98 pruebas.
 
 ## Créditos
 

@@ -10,42 +10,15 @@ pub struct NormalImage {
     width: usize,
     height: usize,
     normals: Vec<Vec3>,
-    /// Blend neighboring pixels when sampling (water) or use the nearest one (stone)
-    smooth: bool,
 }
 
 impl NormalImage {
     /// Normal map from the image brightness
     pub fn from_height(image: &ImageTexture, strength: f32) -> &'static NormalImage {
-        NormalImage::build(image, strength, 0)
-    }
-
-    /// Like `from_height`, but blurred and smooth, for water
-    pub fn from_height_smooth(
-        image: &ImageTexture,
-        strength: f32,
-        blur: usize,
-    ) -> &'static NormalImage {
-        NormalImage::build(image, strength, blur)
-    }
-
-    fn build(image: &ImageTexture, strength: f32, blur: usize) -> &'static NormalImage {
         let (width, height) = (image.width(), image.height());
-
-        // Height of each pixel (its brightness), blurred if needed
-        let mut heights: Vec<f32> = (0..width * height)
-            .map(|i| image.luminance((i % width) as isize, (i / width) as isize))
-            .collect();
-        if blur > 0 {
-            // Two averaging passes give a rounder curve than one
-            for _ in 0..2 {
-                heights = box_blur(&heights, width, height, blur);
-            }
-        }
+        // Height of each pixel: its brightness
         let h = |x: usize, y: usize, dx: isize, dy: isize| {
-            let x = (x as isize + dx).rem_euclid(width as isize) as usize;
-            let y = (y as isize + dy).rem_euclid(height as isize) as usize;
-            heights[y * width + x]
+            image.luminance(x as isize + dx, y as isize + dy)
         };
 
         let mut normals = Vec::with_capacity(width * height);
@@ -62,56 +35,15 @@ impl NormalImage {
             }
         }
 
-        Box::leak(Box::new(NormalImage {
-            width,
-            height,
-            normals,
-            smooth: blur > 0,
-        }))
+        Box::leak(Box::new(NormalImage { width, height, normals }))
     }
 
-    /// Normal at point (u, v)
+    /// Normal of the nearest pixel, like the texture, so the relief follows the pixels
     fn sample(&self, u: f32, v: f32) -> Vec3 {
-        let (w, h) = (self.width, self.height);
-        if !self.smooth {
-            let x = (u.rem_euclid(1.0) * w as f32) as usize;
-            let y = (v.clamp(0.0, 1.0) * h as f32) as usize;
-            return self.normals[y.min(h - 1) * w + x.min(w - 1)];
-        }
-
-        let x = u.rem_euclid(1.0) * w as f32 - 0.5;
-        let y = v.rem_euclid(1.0) * h as f32 - 0.5;
-        let (x0, y0) = (x.floor(), y.floor());
-        let (tx, ty) = (x - x0, y - y0);
-        let at = |px: f32, py: f32| {
-            let px = (px as isize).rem_euclid(w as isize) as usize;
-            let py = (py as isize).rem_euclid(h as isize) as usize;
-            self.normals[py * w + px]
-        };
-        let top = at(x0, y0) * (1.0 - tx) + at(x0 + 1.0, y0) * tx;
-        let bottom = at(x0, y0 + 1.0) * (1.0 - tx) + at(x0 + 1.0, y0 + 1.0) * tx;
-        normalize(&(top * (1.0 - ty) + bottom * ty))
+        let x = (u.rem_euclid(1.0) * self.width as f32) as usize;
+        let y = (v.clamp(0.0, 1.0) * self.height as f32) as usize;
+        self.normals[y.min(self.height - 1) * self.width + x.min(self.width - 1)]
     }
-}
-
-/// Average of each pixel with its neighbors, wrapping around the edges
-fn box_blur(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
-    let r = radius as isize;
-    let count = ((2 * r + 1) * (2 * r + 1)) as f32;
-    (0..width * height)
-        .map(|i| {
-            let (x, y) = ((i % width) as isize, (i / width) as isize);
-            let mut sum = 0.0;
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let px = (x + dx).rem_euclid(width as isize) as usize;
-                    let py = (y + dy).rem_euclid(height as isize) as usize;
-                    sum += values[py * width + px];
-                }
-            }
-            sum / count
-        })
-        .collect()
 }
 
 /// Normal map of a material
@@ -137,21 +69,6 @@ impl NormalMap {
                 side: NormalImage::from_height(side, strength),
                 bottom: NormalImage::from_height(bottom, strength),
             }),
-            _ => None,
-        }
-    }
-
-    /// Soft wave normal map, for water
-    pub fn smooth_from_texture(
-        texture: &Texture,
-        strength: f32,
-        blur: usize,
-    ) -> Option<NormalMap> {
-        match texture {
-            Texture::Image(image) => {
-                let smooth = NormalImage::from_height_smooth(image, strength, blur);
-                Some(NormalMap::Image(smooth))
-            }
             _ => None,
         }
     }
@@ -222,27 +139,6 @@ mod tests {
         let suave = NormalImage::from_height(rampa, 0.5).normals[5];
         let fuerte = NormalImage::from_height(rampa, 4.0).normals[5];
         assert!(fuerte.z < suave.z);
-    }
-
-    #[test]
-    fn el_mapa_suave_cambia_de_a_poco_entre_pixeles_vecinos() {
-        // Irregular per-pixel noise, like the water texture
-        let ruido = imagen(8, |x, y| ((x * 7 + y * 13 + x * y) % 5 * 60) as u8);
-        let comun = NormalImage::from_height(ruido, 1.0);
-        let suave = NormalImage::from_height_smooth(ruido, 1.0, 2);
-
-        // How much the normal changes when moving slightly across the face
-        let salto = |mapa: &NormalImage| {
-            (0..64)
-                .map(|i| {
-                    let u = i as f32 / 64.0;
-                    (mapa.sample(u, 0.3) - mapa.sample(u + 1.0 / 64.0, 0.3)).norm()
-                })
-                .fold(0.0, f32::max)
-        };
-        assert!(salto(suave) < salto(comun) * 0.5 + 1e-6);
-        // And the smooth one has no sudden jumps
-        assert!(salto(suave) < 0.2, "{}", salto(suave));
     }
 
     #[test]

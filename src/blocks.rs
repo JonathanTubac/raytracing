@@ -405,7 +405,7 @@ impl Blocks {
             },
         };
 
-        // Relief of each block
+        // Relief of each block. Glass and water stay flat so the refraction is clear.
         Blocks {
             grass: con_relieve(b.grass, 0.8),
             dirt: con_relieve(b.dirt, 1.5),
@@ -414,11 +414,6 @@ impl Blocks {
             planks: con_relieve(b.planks, 2.0),
             log: con_relieve(b.log, 2.5),
             leaves: con_relieve(b.leaves, 1.0),
-            // Water: soft waves, taken from the blurred texture
-            water: Material {
-                normal_map: NormalMap::smooth_from_texture(&b.water.texture, 3.0, 2),
-                ..b.water
-            },
             sand: con_relieve(b.sand, 1.2),
             diamond: con_relieve(b.diamond, 2.0),
             gold: con_relieve(b.gold, 2.0),
