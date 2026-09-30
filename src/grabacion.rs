@@ -40,6 +40,8 @@ struct Grabador<'a, W: Write> {
     fb: Framebuffer,
     out: &'a mut W,
     cuadros: usize,
+    /// Whether refraction is on (off only for the before/after comparison)
+    refraccion: bool,
 }
 
 impl<W: Write> Grabador<'_, W> {
@@ -52,7 +54,9 @@ impl<W: Write> Grabador<'_, W> {
         subtitulo: &str,
         overlay: f32,
     ) -> io::Result<()> {
-        render(&mut self.fb, &mundo.scene(normal_maps), camera, 1);
+        let mut scene = mundo.scene(normal_maps);
+        scene.refraction = self.refraccion;
+        render(&mut self.fb, &scene, camera, 1);
         self.fb.portal_swirl(overlay, self.cuadros as f32 / FPS);
 
         if !subtitulo.is_empty() {
@@ -93,6 +97,7 @@ pub fn grabar(mundos: &mut [Mundo; 2], out: &mut impl Write) -> io::Result<()> {
         fb: Framebuffer::new(ANCHO, ALTO),
         out,
         cuadros: 0,
+        refraccion: true,
     };
     let home = mundos[MINA].home;
     let centro = home.center;
@@ -103,6 +108,15 @@ pub fn grabar(mundos: &mut [Mundo; 2], out: &mut impl Write) -> io::Result<()> {
     let mina = &mundos[MINA];
     g.toma(mina, 7.0, true, "MINA EN RUST - RAYTRACING SIN LIBRERIAS", |t| {
         vista(centro, 19.0, yaw0 + 1.6 * ease(t), pitch0)
+    })?;
+    // Zoom from the front: in close (staying outside the island), then out far
+    g.toma(mina, 5.0, true, "ZOOM: ACERCAR Y ALEJAR", |t| {
+        let distance = if t < 0.5 {
+            24.0 - 12.0 * ease(t * 2.0)
+        } else {
+            12.0 + 20.0 * ease((t - 0.5) * 2.0)
+        };
+        vista(centro, distance, yaw0, pitch0)
     })?;
 
     // 2. The cut: lava, glowstone, gold and diamond, water
@@ -119,10 +133,13 @@ pub fn grabar(mundos: &mut [Mundo; 2], out: &mut impl Write) -> io::Result<()> {
     g.toma(mina, 2.5, false, "MAPAS NORMALES: NO", |t| pared(t * 0.5))?;
     g.toma(mina, 2.5, true, "MAPAS NORMALES: SI", |t| pared(0.5 + t * 0.5))?;
 
-    // 4. The pond and the glass: refraction and sky reflection
-    g.toma(mina, 5.0, true, "REFRACCION: AGUA Y VIDRIO", |t| {
-        vista(Vec3::new(5.5, 0.0, 5.0), 7.0 - 1.5 * t, 0.2 + 0.7 * ease(t), 0.55)
-    })?;
+    // 4. Refraction: the pond without and with bending. With it, the bottom and the sea
+    //    lantern look raised, like looking into a pool.
+    let agua = |t: f32| vista(Vec3::new(6.5, 0.0, 5.5), 5.0, 0.5 + 0.2 * t, 0.35);
+    g.refraccion = false;
+    g.toma(mina, 3.0, true, "REFRACCION: NO", |t| agua(t * 0.5))?;
+    g.refraccion = true;
+    g.toma(mina, 3.0, true, "REFRACCION: SI (AGUA 1.33)", |t| agua(0.5 + t * 0.5))?;
 
     // 5. Night and day
     mundos[MINA].horario = NOCHE;

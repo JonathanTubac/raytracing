@@ -15,9 +15,9 @@ Todo corre en el procesador (sin tarjeta de video), en paralelo entre todos sus 
 
 **[Ver el video (video/diorama.mp4)](video/diorama.mp4)**
 
-El video recorre la mina al atardecer, el corte con la lava y los minerales, la comparación con
-y sin mapas normales, el estanque, la noche y el día, y el viaje por el portal hasta el Nether.
-Cada efecto aparece con un subtítulo. Está en [`video/diorama.mp4`](video/diorama.mp4).
+El video recorre la mina al atardecer, un acercamiento y alejamiento (zoom), el corte con la
+lava y los minerales, las comparaciones con y sin mapas normales y con y sin refracción, la
+noche y el día, y el viaje por el portal hasta el Nether. Cada efecto aparece con un subtítulo. Está en [`video/diorama.mp4`](video/diorama.mp4).
 
 ## Capturas
 
@@ -32,6 +32,13 @@ Cada efecto aparece con un subtítulo. Está en [`video/diorama.mp4`](video/dior
 | Sin mapas normales | Con mapas normales |
 |---|---|
 | ![Sin mapas normales](docs/normales_no.png) | ![Con mapas normales](docs/normales_si.png) |
+
+| Sin refracción | Con refracción (agua, índice 1.33) |
+|---|---|
+| ![Sin refracción](docs/refraccion_no.png) | ![Con refracción](docs/refraccion_si.png) |
+
+Con refracción, el fondo del estanque y la linterna marina se ven levantados, como al mirar una
+piscina.
 
 ## Cómo ejecutarlo
 
@@ -58,6 +65,7 @@ Opciones de línea de comandos:
 | `--captura` | Renderiza un cuadro a `output.png` sin abrir la ventana |
 | `--bench` | Mide los milisegundos por cuadro mientras la cámara da una vuelta |
 | `--nether`, `--noche`, `--dia`, `--sin-normales` | Empiezan en ese mundo, esa hora o sin mapas normales (se combinan con las anteriores) |
+| `--sin-refraccion` | Con `--captura`: la luz atraviesa el agua y el vidrio sin doblarse, para comparar |
 | `--viaje` | Guarda cuadros del viaje por el portal (`viaje_NN.png`) |
 | `--grabar` | Escribe el video del recorrido como pixeles crudos a la salida estándar |
 

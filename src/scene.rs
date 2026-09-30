@@ -57,6 +57,7 @@ impl Mundo {
             skybox: &horario.skybox,
             ambient: horario.ambient,
             normal_maps,
+            refraction: true,
         }
     }
 

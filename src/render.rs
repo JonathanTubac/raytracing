@@ -27,6 +27,8 @@ pub struct Scene<'a, O> {
     pub ambient: Color,
     /// Whether normal maps are used
     pub normal_maps: bool,
+    /// Whether light bends through transparent materials (off = index 1.0, for comparison)
+    pub refraction: bool,
 }
 
 /// Direction a ray arriving as `incident` bounces off a surface with that normal
@@ -220,7 +222,8 @@ pub fn cast_ray<O: RayIntersect>(
 
     // Transparency: cast another ray that bends through the surface
     if transparency > 0.0 {
-        let direction = match refract(ray_direction, &normal, material.refractive_index) {
+        let index = if scene.refraction { material.refractive_index } else { 1.0 };
+        let direction = match refract(ray_direction, &normal, index) {
             Some(refracted) => normalize(&refracted),
             None => normalize(&reflect(ray_direction, &normal)),
         };
@@ -359,6 +362,7 @@ mod tests {
             skybox: &skybox,
             ambient: Color::rgb(AMBIENTE, AMBIENTE, AMBIENTE),
             normal_maps: true,
+            refraction: true,
         };
         cast_ray(origen, direccion, &scene, 0)
     }

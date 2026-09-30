@@ -81,8 +81,11 @@ fn main() {
     let mut camera = mundos[actual].home;
 
     // `cargo run -- --captura` renders a single frame to output.png without opening the window
+    // (`--sin-refraccion` lets light go straight through water and glass, for comparison)
     if flag("--captura") {
-        render(&mut framebuffer, &mundos[actual].scene(normal_maps), &camera, 1);
+        let mut scene = mundos[actual].scene(normal_maps);
+        scene.refraction = !flag("--sin-refraccion");
+        render(&mut framebuffer, &scene, &camera, 1);
         framebuffer
             .save_to_file("output.png")
             .expect("Error al guardar output.png");
