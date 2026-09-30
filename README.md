@@ -15,6 +15,7 @@ Todo corre en el procesador (sin tarjeta de video), en paralelo entre todos sus 
 
 **[Ver el video (video/diorama.mp4)](video/diorama.mp4)**
 
+video en youtube: https://youtu.be/fRjsF1CRIk0
 El video recorre la mina al atardecer, un acercamiento y alejamiento (zoom), el corte con la
 lava y los minerales, las comparaciones con y sin mapas normales y con y sin refracción, la
 noche y el día, y el viaje por el portal hasta el Nether. Cada efecto aparece con un subtítulo. Está en [`video/diorama.mp4`](video/diorama.mp4).
